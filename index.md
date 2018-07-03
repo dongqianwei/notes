@@ -2,4 +2,4 @@
 
 ### contents as following
 
-1. [VBS](vbs.md)
+1. [VBS](vbs)
