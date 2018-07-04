@@ -2,14 +2,14 @@
 
 ### Chapter2
 
-1.redim array size and preserve original content
+* redim array size and preserve original content
 
 ```VB
 Dim temp()
 ReDim Preserve temp(100)
 ```
 
-2. user define type:
+* user define type:
 
 ```VB
 Type Employee
@@ -19,14 +19,15 @@ Years as Integer
 End Type
 ```
 
-3. constants
+* constants
 ```VB
 Const Path_Name = "C://temp"
 ```
 
-# Chapter3
+### Chapter3
 
 1. Condition
+
 ```VB
 If <Condition> Then
   xxx
@@ -96,8 +97,8 @@ Wend
 
 Exit For / Exit Do
 
-# Chapter 4
-## String
+### Chapter 4
+#### String
 
 1. Concatenation
 
@@ -131,4 +132,47 @@ CStr
 
 CInt
 
+
+### Chapter 7
+#### Debugging
+
+
+* stop Function
+
+* error handlering
+
+```VBS
+Sub Test_Error()
+On Error GoTo err_handler
+temp = Dir("d:\*.*")
+Exit Sub
+err_handler:
+If Err.Number = 71 Then
+  MsgBox "The D drive is not ready"
+Else
+  MsgBox "An error happend"
+End If
+End Sub
+```
+
+```VBS
+Resume
+'just resume to next statement, skip error statement'
+On Error Resume Next
+```
+
+* Trun Off Error Handling
+```VBS
+On Error Resume Next
+On Error GoTo 0
+```
+
+* User raise Error
+```VBS
+Error 71
+'Or'
+Err.Raise(71)
+'regenerate current Err'
+Error Err
+```
 
