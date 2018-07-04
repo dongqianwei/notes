@@ -63,21 +63,21 @@
 
 * Loops
 
-** For..Next.. Loops
+* * For..Next.. Loops
   ```VBS
   For n = 3 to 12 Step 3
     MsgBox n
   Next n
   ```
-** For Each Loops
+* * For Each Loops
   ```VBS
   Dim oWSheet As Worksheet
   For Each oWSheet In Worksheets
     MsgBox oWSheet.Name
-  Next oWSheet
+  Next oWSheet 
   ```
 
-** Do Until Loops
+* * Do Until Loops
   ```VBS
   x = 0
   Do Until x = 100
@@ -85,7 +85,7 @@
   Loop
   ```
 
-** While..Wend Loops
+* * While..Wend Loops
   ```VBS
   x = 0
   While x < 50
@@ -93,7 +93,7 @@
   Wend
   ```
 
-** Exit Loops
+* * Exit Loops
 
   Exit For / Exit Do
 
