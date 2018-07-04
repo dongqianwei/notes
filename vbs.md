@@ -93,5 +93,42 @@ While x < 50
 Wend
 ```
 5.5 Exit Loops
+
 Exit For / Exit Do
+
+# Chapter 4
+## String
+
+1. Concatenation
+
+&
+
+2. substring
+
+Mid/Left/Right
+
+3. string to number
+
+Val
+
+4. upper, lower
+
+UCase/LCase
+
+5. in string
+
+Instr
+
+6. length 
+
+Len
+
+7. value to string
+
+CStr
+
+8. value to int
+
+CInt
+
 
