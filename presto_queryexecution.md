@@ -1,18 +1,39 @@
-in SqlQueryManger.createQueryInternal(433),get QueryExecutionFactory,
+in SqlQueryManger.createQueryInternal(Line 433)
 ```java
 QueryExecutionFactory<?> queryExecutionFactory = executionFactories.get(statement.getClass());
 ```
-QueryExecutionFactory interface has two implementations: `DataDefinationExecutionFactory` and `SqlQueryExecutionFactory`,
-`executionFactories`is a map initialized in `CoordinatorModule`,`SqlQueryExecutionFactory`is binded as following:
+this statement get `QueryExecutionFactory` from `executionFactories` by statement's class,
+QueryExecutionFactory interface has two implementations: `DataDefinationExecutionFactory` and `SqlQueryExecutionFactory.
+`executionFactories` is a Map and maps statement Class to `QueryExecutionFactory`,
+the map is injected by Guice and initilized in `CoordinatorModule`,
 ```java
 getAllQueryTypes().entrySet().stream()
         .filter(entry -> entry.getValue() != QueryType.DATA_DEFINITION)
         .forEach(entry -> executionBinder.addBinding(entry.getKey()).to(SqlQueryExecutionFactory.class).in(Scopes.SINGLETON));
 
 ```
-`getAllQueryTypes()`get query types defined in StatementUtils and bind all Statement with types not equals with `QueryType.DATA_DEFINITION`
+`getAllQueryTypes()`get all query's type build in `StatementUtils`,
+```java
+builder.put(Query.class, QueryType.SELECT);
+
+builder.put(Explain.class, QueryType.EXPLAIN);
+
+builder.put(CreateTableAsSelect.class, QueryType.INSERT);
+builder.put(Insert.class, QueryType.INSERT);
+
+builder.put(Delete.class, QueryType.DELETE);
+
+builder.put(ShowCatalogs.class, QueryType.DESCRIBE);
+builder.put(ShowCreate.class, QueryType.DESCRIBE);
+...
+
+builder.put(CreateSchema.class, QueryType.DATA_DEFINITION);
+builder.put(DropSchema.class, QueryType.DATA_DEFINITION);
+builder.put(RenameSchema.class, QueryType.DATA_DEFINITION);
+```
+and bind all Statement with types not equals to `QueryType.DATA_DEFINITION`
 to `SqlQueryExecutionFactory`.
-other Statement is binded to `DataDefinitionExecuationFactory` by following calls:
+other kinds of Statements is bind to `DataDefinitionExecuationFactory` by following calls:
 ```java
 bindDataDefinitionTask(binder, executionBinder, CreateSchema.class, CreateSchemaTask.class);
 bindDataDefinitionTask(binder, executionBinder, DropSchema.class, DropSchemaTask.class);
@@ -31,16 +52,15 @@ MapBinder<Class<? extends Statement>, DataDefinitionTask<?>> taskBinder = newMap
 taskBinder.addBinding(statement).to(task).in(Scopes.SINGLETON);
 executionBinder.addBinding(statement).to(DataDefinitionExecutionFactory.class).in(Scopes.SINGLETON);
 ```
-every Data Definition Statement is bind to its Task in a MapBinder,
-and the map will be injected into `DataDefinitionExecuationFactory`
-by its constructor.
+every DataDefinitionStatement is maped to its Task through a MapBinder,
+and the map will be injected into `DataDefinitionExecutionFactory`'s `tasks` field,
 
-So when in SqlQueryManger.createQueryInternal(433)
+So in
 ```java
 QueryExecutionFactory<?> queryExecutionFactory = executionFactories.get(statement.getClass());
 ```
-if statement is kind of DataDefinationStatement, then `DataDefinationExecuationFactory` is returned.
-then it will call
+if statement's type is DataDefination, then `DataDefinationExecuationFactory` is returned.
+then when it calls
 ```java
 queryExecution = queryExecutionFactory.createQueryExecution(queryId, query, session, statement, parameters);
 ```
@@ -55,7 +75,7 @@ QueryStateMachine stateMachine = QueryStateMachine.begin(queryId, query, session
 stateMachine.setUpdateType(task.getName());
 return new DataDefinitionExecution<>(task, statement, transactionManager, metadata, accessControl, stateMachine, parameters);
 ```
-and the DataDefinationTask is fetched and wrapped in DataDefinitionExecution and returned, and the task will run when Execution is started.
+and the `DataDefinationTask` is fetched and wrapped in `DataDefinitionExecution` and returned, and the task will run when `DataDefinitionExecution` is started.
 
-and If Statement is of other types, `SqlQueryExecutionFactory` is returned and it will create `SqlQueryExecution`,
-when this Execution start, the Query is analysed and create Plan and so on.
+and if Statement is of other types, `SqlQueryExecutionFactory` is returned and it will create `SqlQueryExecution`,
+when this Execution start, the Query is analysed and create Plan and so on. It will be analysed in other articles.
