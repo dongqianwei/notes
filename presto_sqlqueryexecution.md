@@ -124,4 +124,39 @@ public PlanNode planStatement(Analysis analysis, Statement statement)
     return createOutputPlan(planStatementWithoutOutput(analysis, statement), analysis);
 }
 ```
+first, the function detect if statement is instance of CreateTableAsSelect and if the statement contains "if not exists"
+and the table already exists(this is detected in the analysis stage).
 
+if condition is true, then nothing needs to be done and an empty PlanNode is returned.
+otherwise, it calls planStatementWithoutOutput to generate the PlanNode.
+```java
+private RelationPlan planStatementWithoutOutput(Analysis analysis, Statement statement)
+{
+    if (statement instanceof CreateTableAsSelect) {
+        if (analysis.isCreateTableAsSelectNoOp()) {
+            throw new PrestoException(NOT_SUPPORTED, "CREATE TABLE IF NOT EXISTS is not supported in this context " + statement.getClass().getSimpleName());
+        }
+        return createTableCreationPlan(analysis, ((CreateTableAsSelect) statement).getQuery());
+    }
+    else if (statement instanceof Insert) {
+        checkState(analysis.getInsert().isPresent(), "Insert handle is missing");
+        return createInsertPlan(analysis, (Insert) statement);
+    }
+    else if (statement instanceof Delete) {
+        return createDeletePlan(analysis, (Delete) statement);
+    }
+    else if (statement instanceof Query) {
+        return createRelationPlan(analysis, (Query) statement);
+    }
+    else if (statement instanceof Explain && ((Explain) statement).isAnalyze()) {
+        return createExplainAnalyzePlan(analysis, (Explain) statement);
+    }
+    else {
+        throw new PrestoException(NOT_SUPPORTED, "Unsupported statement type " + statement.getClass().getSimpleName());
+    }
+}
+```
+the function checks statement type and use different function to generate PlanNode,
+1.1.1 `createTableCreationPlan`
+the first branch detects if statement type is `CreateTableAsSelect`,
+it calls `createTableCreationPlan` and passes the Query Part of the statement.
