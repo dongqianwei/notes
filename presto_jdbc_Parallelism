@@ -1,0 +1,13 @@
+在presto-jdbc插件中已经实现了将部分condition下推到数据库中通过生成sql语句中的where部分执行，
+具体代码在QueryBuild.toConjuncts中，支持AND/OR/IN和数据范围的约束。
+应此数据库中的索引实际上已经被利用来减少数据量了。
+
+presto-jdbc中每个表默认只有一个split，会导致只会有一个worker连接数据库。
+要使用多个worker连接来提高性能的话需要将数据库表按照索引列切分，分成不同的split，在不同的split中并行读取。
+
+用于切分表的索引列可以在connector配置文件中配置，包括对应表的索引列名称，索引范围。
+然后在构造split的时候根据worker数量和索引范围生成对应的sql语句。
+
+由于每个索引范围中的数据量事先是不知道的，应此为了保证每个worker上的数据量比较平衡，
+可以在生成split的时候先不确定该split所负责的索引范围，而是在Coordinator上将索引分为大量的小区间，然后启动一个服务。
+然后split会从服务上请求索引区间并生成sql语句执行，并返回已经读取的数据量，Coordinator负责统一调度以平衡worker的数据量。
