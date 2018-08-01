@@ -20,7 +20,7 @@ private PlanRoot doAnalyzeQuery()
 
 1. logicalPlanner.plan方法将Statement解析为初步的PlanNode(Plan{PlanNode})
 
-相关代码在(presto_sqlqueryexecution)[presto_sqlqueryexecution]中解读
+相关代码在[presto_SqlQueryExecution](presto_sqlqueryexecution)中解读
 
 2. PlanFragmenter.createSubPlans将PlanNode分片，输出为SubPlan
 
