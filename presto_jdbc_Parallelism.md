@@ -1,6 +1,6 @@
 在presto-jdbc插件中已经实现了将部分condition下推到数据库中通过生成sql语句中的where部分执行，
 具体代码在QueryBuild.toConjuncts中，支持AND/OR/IN和数据范围的约束。
-应此数据库中的索引实际上已经被利用来减少数据量了。
+应此数据库中的索引实际上已经被利用来减少数据库返回的数据量了。
 
 presto-jdbc中每个表默认只有一个split，会导致只会有一个worker连接数据库。
 要使用多个worker连接来提高性能的话需要将数据库表按照索引列切分，分成不同的split，在不同的split中并行读取。
