@@ -87,6 +87,35 @@ public PlanNode visitExchange(ExchangeNode exchange, RewriteContext<FragmentProp
     return new RemoteSourceNode(exchange.getId(), childrenIds, exchange.getOutputSymbols(), exchange.getOrderingScheme());
 }
 ```
+该方法只处理scope为REMOTE的exchange，即需要从其他节点收集数据的exchange。
 
+该方法主要分为两个步骤:
+* 遍历exchangeNode的所有source节点，对每个节点创建新的SubPlan，然后将生成的SubPlan列表保存到当前节点对应的FragmentProperties中.
+* 创建并返回RemoteSourceNode，也就是将当前的ExchangeNode替换为了RemoteSourceNode.
 
 2. 调用fragmenter.buildRootFragment构建SubPlan;
+
+该方法的具体实现:
+```java
+private SubPlan buildFragment(PlanNode root, FragmentProperties properties, PlanFragmentId fragmentId)
+{
+    Set<Symbol> dependencies = SymbolsExtractor.extractOutputSymbols(root);
+
+    List<PlanNodeId> schedulingOrder = scheduleOrder(root);
+    boolean equals = properties.getPartitionedSources().equals(ImmutableSet.copyOf(schedulingOrder));
+    checkArgument(equals, "Expected scheduling order (%s) to contain an entry for all partitioned sources (%s)", schedulingOrder, properties.getPartitionedSources());
+
+    PlanFragment fragment = new PlanFragment(
+            fragmentId,
+            root,
+            Maps.filterKeys(types.allTypes(), in(dependencies)),
+            properties.getPartitioningHandle(),
+            schedulingOrder,
+            properties.getPartitioningScheme(),
+            UNGROUPED_EXECUTION);
+
+    return new SubPlan(fragment, properties.getChildren());
+}
+```
+用当前的root节点创建fragment，然后创建SubPlan，传入root节点的fragment以及properties.getChildren().
+properties.getChildren()返回的是之前visitExchange时所有source创建的SubPlan，这样就构建出了一个树状结构的SubPlan.
