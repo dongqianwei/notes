@@ -2,8 +2,8 @@
 
 ### presto 源码剖析
 
-1. [QueryExecutionFactory](presto_queryexecution)
-2. [SqlQueryExecution](presto_sqlqueryexecution)
+1. [QueryExecutionFactory](QueryExecutionFactory)
+2. [SqlQueryExecution](SqlQueryExecution)
 3. [PlanFragmenter](PlanFragmenter)
 4. [ExchangeNode](ExchangeNode)
 
