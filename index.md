@@ -1,9 +1,11 @@
 ## this is my notes when learning anything
 
-### contents as following
+### presto 源码剖析
 
-1. [VBS](vbs)
-2. [presto QueryExecutionFactory源码分析](presto_queryexecution)
-3. [presto SqlQueryExecution源码分析](presto_sqlqueryexecution)
-4. [presto jdbc并行优化方案](presto_jdbc_Parallelism)
-5. [PlanFragmenter](PlanFragmenter)
+1. [QueryExecutionFactory](presto_queryexecution)
+2. [SqlQueryExecution](presto_sqlqueryexecution)
+3. [PlanFragmenter](PlanFragmenter)
+4. [ExchangeNode](ExchangeNode)
+
+### others
+1. [presto jdbc并行优化方案](presto_jdbc_Parallelism)
