@@ -4,8 +4,9 @@
 
 1. [QueryExecutionFactory](QueryExecutionFactory)
 2. [SqlQueryExecution](SqlQueryExecution)
-3. [PlanFragmenter](PlanFragmenter)
+3. [Plan Fragmenter](PlanFragmenter)
 4. [ExchangeNode](ExchangeNode)
+5. [Plan Distribution](planDistribution)
 
 ### others
 
