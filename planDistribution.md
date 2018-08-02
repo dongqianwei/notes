@@ -122,5 +122,105 @@ public Map<PlanNodeId, SplitSource> visitRemoteSource(RemoteSourceNode node, Voi
     return ImmutableMap.of();
 }
 ```
-结果是一个空Map，也就是说对于上层的StageExecutionPlan
+结果是一个空Map，也就是说对于上层的StageExecutionPlan，其splitSources为空，因为其数据是从其他节点来的，而不是split。
 
+## SqlQueryScheduler.schedule
+StageExecutionPlan生成后，会构造一个SqlQueryScheduler对象，最终SqlQueryExecution执行时，会将SqlQueryScheduler提交到线程池中执行,
+最终调用SqlQueryScheduler.schedule方法:
+
+```java
+private void schedule()
+{
+    try (SetThreadName ignored = new SetThreadName("Query-%s", queryStateMachine.getQueryId())) {
+        Set<StageId> completedStages = new HashSet<>();
+        ExecutionSchedule executionSchedule = executionPolicy.createExecutionSchedule(stages.values());
+        while (!executionSchedule.isFinished()) {
+            List<ListenableFuture<?>> blockedStages = new ArrayList<>();
+            for (SqlStageExecution stage : executionSchedule.getStagesToSchedule()) {
+                stage.beginScheduling();
+
+                // perform some scheduling work
+                ScheduleResult result = stageSchedulers.get(stage.getStageId())
+                        .schedule();
+
+                // modify parent and children based on the results of the scheduling
+                if (result.isFinished()) {
+                    stage.schedulingComplete();
+                }
+                else if (!result.getBlocked().isDone()) {
+                    blockedStages.add(result.getBlocked());
+                }
+                stageLinkages.get(stage.getStageId())
+                        .processScheduleResults(stage.getState(), result.getNewTasks());
+                schedulerStats.getSplitsScheduledPerIteration().add(result.getSplitsScheduled());
+                if (result.getBlockedReason().isPresent()) {
+                    switch (result.getBlockedReason().get()) {
+                        case WRITER_SCALING:
+                            // no-op
+                            break;
+                        case WAITING_FOR_SOURCE:
+                            schedulerStats.getWaitingForSource().update(1);
+                            break;
+                        case SPLIT_QUEUES_FULL:
+                            schedulerStats.getSplitQueuesFull().update(1);
+                            break;
+                        case MIXED_SPLIT_QUEUES_FULL_AND_WAITING_FOR_SOURCE:
+                        case NO_ACTIVE_DRIVER_GROUP:
+                            break;
+                        default:
+                            throw new UnsupportedOperationException("Unknown blocked reason: " + result.getBlockedReason().get());
+                    }
+                }
+            }
+
+            // make sure to update stage linkage at least once per loop to catch async state changes (e.g., partial cancel)
+            for (SqlStageExecution stage : stages.values()) {
+                if (!completedStages.contains(stage.getStageId()) && stage.getState().isDone()) {
+                    stageLinkages.get(stage.getStageId())
+                            .processScheduleResults(stage.getState(), ImmutableSet.of());
+                    completedStages.add(stage.getStageId());
+                }
+            }
+
+            // wait for a state change and then schedule again
+            if (!blockedStages.isEmpty()) {
+                try (TimeStat.BlockTimer timer = schedulerStats.getSleepTime().time()) {
+                    tryGetFutureValue(whenAnyComplete(blockedStages), 1, SECONDS);
+                }
+                for (ListenableFuture<?> blockedStage : blockedStages) {
+                    blockedStage.cancel(true);
+                }
+            }
+        }
+
+        for (SqlStageExecution stage : stages.values()) {
+            StageState state = stage.getState();
+            if (state != SCHEDULED && state != RUNNING && !state.isDone()) {
+                throw new PrestoException(GENERIC_INTERNAL_ERROR, format("Scheduling is complete, but stage %s is in state %s", stage.getStageId(), state));
+            }
+        }
+    }
+    catch (Throwable t) {
+        queryStateMachine.transitionToFailed(t);
+        throw t;
+    }
+    finally {
+        RuntimeException closeError = new RuntimeException();
+        for (StageScheduler scheduler : stageSchedulers.values()) {
+            try {
+                scheduler.close();
+            }
+            catch (Throwable t) {
+                queryStateMachine.transitionToFailed(t);
+                // Self-suppression not permitted
+                if (closeError != t) {
+                    closeError.addSuppressed(t);
+                }
+            }
+        }
+        if (closeError.getSuppressed().length > 0) {
+            throw closeError;
+        }
+    }
+}
+```
