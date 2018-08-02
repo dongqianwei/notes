@@ -91,6 +91,18 @@ public PlanNode visitExchange(ExchangeNode exchange, RewriteContext<FragmentProp
 
 该方法主要分为两个步骤:
 * 遍历exchangeNode的所有source节点，对每个节点创建新的SubPlan，然后将生成的SubPlan列表保存到当前节点对应的FragmentProperties中.
+
+创建subPlan代码如下：
+```java
+private SubPlan buildSubPlan(PlanNode node, FragmentProperties properties, RewriteContext<FragmentProperties> context)
+{
+    PlanFragmentId planFragmentId = nextFragmentId();
+    PlanNode child = context.rewrite(node, properties);
+    return buildFragment(child, properties, planFragmentId);
+}
+```
+
+
 * 创建并返回RemoteSourceNode，也就是将当前的ExchangeNode替换为了RemoteSourceNode.
 
 2. 调用fragmenter.buildRootFragment构建SubPlan;
@@ -119,3 +131,6 @@ private SubPlan buildFragment(PlanNode root, FragmentProperties properties, Plan
 ```
 用当前的root节点创建fragment，然后创建SubPlan，传入root节点的fragment以及properties.getChildren().
 properties.getChildren()返回的是之前visitExchange时所有source创建的SubPlan，这样就构建出了一个树状结构的SubPlan.
+
+这个算法最核心的地方在于，原先的PlanNode节点也是一个树状结构，在经过Fragement步骤后，所有的REMOTE Exchange节点都被切割开了，
+用一个RemoteSourceNode代替，同时被包装进一个PlanFragement结构中，被分割开的Exchange的source节点都被包装进各自的SubPlan节点最终形成一个SunPlan树状结构，该结构实际上表示一个SubPlan在分布式的环境中PlanNode之间的跨机器的依赖关系。
