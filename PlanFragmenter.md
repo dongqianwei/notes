@@ -60,6 +60,33 @@ public static SubPlan createSubPlans(Session session, Metadata metadata, NodePar
 }
 ```
 大致上分两个步骤：
-1. 调用SimplePlanRewriter.rewriteWith，使用Fragmenter这个Visitor将PlanNode重写，修改其中一些内容；
-2. 调用fragmenter.buildRootFragment构建SubPlan；
+1. 调用SimplePlanRewriter.rewriteWith，使用Fragmenter这个Visitor将PlanNode重写;
 
+Fragmenter Visitor中实际对PlanNode重写的方法为visitExchange:
+```java
+public PlanNode visitExchange(ExchangeNode exchange, RewriteContext<FragmentProperties> context)
+{
+    if (exchange.getScope() != REMOTE) {
+        return context.defaultRewrite(exchange, context.get());
+    }
+    ...
+    ImmutableList.Builder<SubPlan> builder = ImmutableList.builder();
+    for (int sourceIndex = 0; sourceIndex < exchange.getSources().size(); sourceIndex++) {
+        FragmentProperties childProperties = new FragmentProperties(partitioningScheme.translateOutputLayout(exchange.getInputs().get(sourceIndex)));
+        builder.add(buildSubPlan(exchange.getSources().get(sourceIndex), childProperties, context));
+    }
+
+    List<SubPlan> children = builder.build();
+    context.get().addChildren(children);
+
+    List<PlanFragmentId> childrenIds = children.stream()
+            .map(SubPlan::getFragment)
+            .map(PlanFragment::getId)
+            .collect(toImmutableList());
+
+    return new RemoteSourceNode(exchange.getId(), childrenIds, exchange.getOutputSymbols(), exchange.getOrderingScheme());
+}
+```
+
+
+2. 调用fragmenter.buildRootFragment构建SubPlan;
