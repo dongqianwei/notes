@@ -6,7 +6,7 @@
 2. [SqlQueryExecution](SqlQueryExecution)
 3. [Plan Fragmenter](PlanFragmenter)
 4. [ExchangeNode](ExchangeNode)
-5. [Plan Distribution](planDistribution)
+5. [Plan Distribution](PlanDistribution)
 
 ### others
 
