@@ -1,0 +1,218 @@
+# presto worker原理
+
+## 
+
+presto worker 通过 TaskResource上的restful接口接收来自coordinator的请求:
+```java
+@POST
+@Path("{taskId}")
+@Consumes(MediaType.APPLICATION_JSON)
+@Produces(MediaType.APPLICATION_JSON)
+public Response createOrUpdateTask(@PathParam("taskId") TaskId taskId, TaskUpdateRequest taskUpdateRequest, @Context UriInfo uriInfo)
+{
+    requireNonNull(taskUpdateRequest, "taskUpdateRequest is null");
+
+    Session session = taskUpdateRequest.getSession().toSession(sessionPropertyManager);
+    TaskInfo taskInfo = taskManager.updateTask(session,
+            taskId,
+            taskUpdateRequest.getFragment(),
+            taskUpdateRequest.getSources(),
+            taskUpdateRequest.getOutputIds(),
+            taskUpdateRequest.getTotalPartitions());
+
+    if (shouldSummarize(uriInfo)) {
+        taskInfo = taskInfo.summarize();
+    }
+
+    return Response.ok().entity(taskInfo).build();
+}
+```
+该方法调用taskManager.updateTask:
+```java
+@Override
+public TaskInfo updateTask(Session session, TaskId taskId, Optional<PlanFragment> fragment, List<TaskSource> sources, OutputBuffers outputBuffers, OptionalInt totalPartitions)
+{
+...
+    SqlTask sqlTask = tasks.getUnchecked(taskId);
+    sqlTask.recordHeartbeat();
+    return sqlTask.updateTask(session, fragment, sources, outputBuffers, totalPartitions);
+}
+```
+首先传入taskId从缓存中获取SqlTask(如果不存在则创建)，然后调用sqlTask.updateTask更新具体的task:
+```java
+public TaskInfo updateTask(Session session, Optional<PlanFragment> fragment, List<TaskSource> sources, OutputBuffers outputBuffers, OptionalInt totalPartitions)
+{
+        outputBuffer.setOutputBuffers(outputBuffers);
+
+        // assure the task execution is only created once
+        SqlTaskExecution taskExecution;
+        synchronized (this) {
+            // is task already complete?
+            TaskHolder taskHolder = taskHolderReference.get();
+            if (taskHolder.isFinished()) {
+                return taskHolder.getFinalTaskInfo();
+            }
+            taskExecution = taskHolder.getTaskExecution();
+            if (taskExecution == null) {
+                checkState(fragment.isPresent(), "fragment must be present");
+                taskExecution = sqlTaskExecutionFactory.create(session, queryContext, taskStateMachine, outputBuffer, fragment.get(), sources, totalPartitions);
+                taskHolderReference.compareAndSet(taskHolder, new TaskHolder(taskExecution));
+                needsPlan.set(false);
+            }
+        }
+
+        if (taskExecution != null) {
+            taskExecution.addSources(sources);
+        }
+
+    return getTaskInfo();
+}
+```
+该方法首先检查taskHolder中有没有SqlTaskExecution，如果没有则创建taskExecution。
+然后调用taskExecution.addSources方法
+
+## SqlTaskExecution
+
+sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
+```java
+    public SqlTaskExecution create(Session session, QueryContext queryContext, TaskStateMachine taskStateMachine, OutputBuffer outputBuffer, PlanFragment fragment, List<TaskSource> sources, OptionalInt totalPartitions)
+    {
+        boolean verboseStats = getVerboseStats(session);
+        TaskContext taskContext = queryContext.addTaskContext(
+                taskStateMachine,
+                session,
+                verboseStats,
+                cpuTimerEnabled,
+                totalPartitions);
+
+        LocalExecutionPlan localExecutionPlan;
+        try (SetThreadName ignored = new SetThreadName("Task-%s", taskStateMachine.getTaskId())) {
+            try {
+                localExecutionPlan = planner.plan(
+                        taskContext,
+                        fragment.getRoot(),
+                        TypeProvider.copyOf(fragment.getSymbols()),
+                        fragment.getPartitioningScheme(),
+                        fragment.getPipelineExecutionStrategy() == GROUPED_EXECUTION,
+                        fragment.getPartitionedSources(),
+                        outputBuffer);
+
+                for (DriverFactory driverFactory : localExecutionPlan.getDriverFactories()) {
+                    Optional<PlanNodeId> sourceId = driverFactory.getSourceId();
+                    if (sourceId.isPresent() && fragment.isPartitionedSources(sourceId.get())) {
+                        checkArgument(fragment.getPipelineExecutionStrategy() == driverFactory.getPipelineExecutionStrategy(),
+                                "Partitioned pipelines are expected to have the same execution strategy as the fragment");
+                    }
+                    else {
+                        checkArgument(fragment.getPipelineExecutionStrategy() != UNGROUPED_EXECUTION || driverFactory.getPipelineExecutionStrategy() == UNGROUPED_EXECUTION,
+                                "When fragment execution strategy is ungrouped, all pipelines should have ungrouped execution strategy");
+                    }
+                }
+            }
+            catch (Throwable e) {
+                // planning failed
+                taskStateMachine.failed(e);
+                throwIfUnchecked(e);
+                throw new RuntimeException(e);
+            }
+        }
+        return createSqlTaskExecution(
+                taskStateMachine,
+                taskContext,
+                outputBuffer,
+                sources,
+                localExecutionPlan,
+                taskExecutor,
+                taskNotificationExecutor,
+                queryMonitor);
+    }
+```
+该方法分为两个步骤：
+1. 调用LocalExecutionPlanner.plan创建localExecutionPlan。
+2. 调用createSqlTaskExecution创建SqlTaskExecution
+
+### LocalExecutionPlanner.plan
+```java
+    public LocalExecutionPlan plan(
+            TaskContext taskContext,
+            PlanNode plan,
+            TypeProvider types,
+            PartitioningScheme partitioningScheme,
+            boolean planGrouped,
+            List<PlanNodeId> partitionedSourceOrder,
+            OutputBuffer outputBuffer)
+    {
+        List<Symbol> outputLayout = partitioningScheme.getOutputLayout();
+
+        if (partitioningScheme.getPartitioning().getHandle().equals(FIXED_BROADCAST_DISTRIBUTION) ||
+                partitioningScheme.getPartitioning().getHandle().equals(FIXED_ARBITRARY_DISTRIBUTION) ||
+                partitioningScheme.getPartitioning().getHandle().equals(SCALED_WRITER_DISTRIBUTION) ||
+                partitioningScheme.getPartitioning().getHandle().equals(SINGLE_DISTRIBUTION) ||
+                partitioningScheme.getPartitioning().getHandle().equals(COORDINATOR_DISTRIBUTION)) {
+            return plan(taskContext, planGrouped, plan, outputLayout, types, partitionedSourceOrder, new TaskOutputFactory(outputBuffer));
+        }
+
+        // We can convert the symbols directly into channels, because the root must be a sink and therefore the layout is fixed
+        List<Integer> partitionChannels;
+        List<Optional<NullableValue>> partitionConstants;
+        List<Type> partitionChannelTypes;
+        if (partitioningScheme.getHashColumn().isPresent()) {
+            partitionChannels = ImmutableList.of(outputLayout.indexOf(partitioningScheme.getHashColumn().get()));
+            partitionConstants = ImmutableList.of(Optional.empty());
+            partitionChannelTypes = ImmutableList.of(BIGINT);
+        }
+        else {
+            partitionChannels = partitioningScheme.getPartitioning().getArguments().stream()
+                    .map(ArgumentBinding::getColumn)
+                    .map(outputLayout::indexOf)
+                    .collect(toImmutableList());
+            partitionConstants = partitioningScheme.getPartitioning().getArguments().stream()
+                    .map(argument -> {
+                        if (argument.isConstant()) {
+                            return Optional.of(argument.getConstant());
+                        }
+                        return Optional.<NullableValue>empty();
+                    })
+                    .collect(toImmutableList());
+            partitionChannelTypes = partitioningScheme.getPartitioning().getArguments().stream()
+                    .map(argument -> {
+                        if (argument.isConstant()) {
+                            return argument.getConstant().getType();
+                        }
+                        return types.get(argument.getColumn());
+                    })
+                    .collect(toImmutableList());
+        }
+
+        PartitionFunction partitionFunction = nodePartitioningManager.getPartitionFunction(taskContext.getSession(), partitioningScheme, partitionChannelTypes);
+        OptionalInt nullChannel = OptionalInt.empty();
+        Set<Symbol> partitioningColumns = partitioningScheme.getPartitioning().getColumns();
+
+        // partitioningColumns expected to have one column in the normal case, and zero columns when partitioning on a constant
+        checkArgument(!partitioningScheme.isReplicateNullsAndAny() || partitioningColumns.size() <= 1);
+        if (partitioningScheme.isReplicateNullsAndAny() && partitioningColumns.size() == 1) {
+            nullChannel = OptionalInt.of(outputLayout.indexOf(getOnlyElement(partitioningColumns)));
+        }
+
+        return plan(
+                taskContext,
+                planGrouped,
+                plan,
+                outputLayout,
+                types,
+                partitionedSourceOrder,
+                new PartitionedOutputFactory(
+                        partitionFunction,
+                        partitionChannels,
+                        partitionConstants,
+                        partitioningScheme.isReplicateNullsAndAny(),
+                        nullChannel,
+                        outputBuffer,
+                        maxPagePartitioningBufferSize));
+    }
+```
+该方法首先检查partitioningScheme.getPartitioning().getHandle()，如果分区方式是五种固定分区方式的话，
+直接调用重载的plan方法创建LocalExecutionPlan，且最后一个参数为TaskOutputOperator。
+
+
+
