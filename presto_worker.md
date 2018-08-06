@@ -220,6 +220,7 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
                 .map(types::get)
                 .collect(toImmutableList());
 
+        // 添加physicalOperation构造的DriverFactory
         context.addDriverFactory(
                 context.isInputDriver(),
                 true,
@@ -250,6 +251,65 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
 ```
 该方法首先使用内部类Visitor访问PlanNode，输出两个参数，一个是返回值physicalOperation，一个通过参数context传出。
 
+这两个参数分别传出什么副作用呢？首先看返回值physicalOperation:
+```java
+context.addDriverFactory(
+        context.isInputDriver(),
+        true,
+        ImmutableList.<OperatorFactory>builder()
+                .addAll(physicalOperation.getOperatorFactories())
+                .add(outputOperatorFactory.createOutputOperator(
+                        context.getNextOperatorId(),
+                        plan.getId(),
+                        outputTypes,
+                        pagePreprocessor,
+                        new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session))))
+                .build(),
+        context.getDriverInstanceCount(),
+        physicalOperation.getPipelineExecutionStrategy());
+```
+可以看到后面会调用context.addDriverFactory将physicalOperation中的operatorFactories也包装进一个DriverFactory添加进context中，
+physicalOperation中的operatorFactoreis是怎么生成的呢？以visitLimit为例:
+```java
+@Override
+public PhysicalOperation visitLimit(LimitNode node, LocalExecutionPlanContext context)
+{
+    PhysicalOperation source = node.getSource().accept(this, context);
+
+    OperatorFactory operatorFactory = new LimitOperatorFactory(context.getNextOperatorId(), node.getId(), node.getCount());
+    return new PhysicalOperation(operatorFactory, source.getLayout(), context, source);
+}
+```
+该方法先用同样的Visitor访问LimitNode的数据源结点，获取sourceNode的physicalOperation，然后创建LimitNode的operatorFacotry，
+最后调用PhysicalOperation构造方法返回。
+
+再看PhysicalOperation构造方法中是怎么构造operatorFactories的：
+```java
+public PhysicalOperation(OperatorFactory operatorFactory, Map<Symbol, Integer> layout, LocalExecutionPlanContext context, PhysicalOperation source)
+{
+    this(operatorFactory, layout, context, Optional.of(requireNonNull(source, "source is null")), source.getPipelineExecutionStrategy());
+}
+
+private PhysicalOperation(
+        OperatorFactory operatorFactory,
+        Map<Symbol, Integer> layout,
+        LocalExecutionPlanContext context,
+        Optional<PhysicalOperation> source,
+        PipelineExecutionStrategy pipelineExecutionStrategy)
+{
+...
+    this.operatorFactories = ImmutableList.<OperatorFactory>builder()
+            .addAll(source.map(PhysicalOperation::getOperatorFactories).orElse(ImmutableList.of()))
+            .add(operatorFactory)
+            .build();
+    this.layout = ImmutableMap.copyOf(layout);
+    this.types = toTypes(layout, context);
+    this.pipelineExecutionStrategy = pipelineExecutionStrategy;
+}
+```
+该方法首先将source节点中的所有operatorFactor添加到列表中，再将当前节点的operatorFactory添加到列表中。
+那么最终的operatorFactories就是从最源头节点对应的operatorFactory一直到当前节点对应的operatorFactory
+
 然后调用context.addDriverFactory添加新的DriverFactory。
 
 最终调用LocalExecutionPlan的构造方法，传入context.getDriverFactories()，也就是所有的DriverFactory。
@@ -257,4 +317,10 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
 我们可以看到，最终的LocalExecutionPlan里面传入的是一个DriverFactory的链表，
 每个DriverFactory中又有一个OperatorFactory的链表，最终我们执行的是OperatorFactory创建的Operator。
 
+我们再看官方文档中对于Driver的介绍：
 
+Driver
+Tasks contain one or more parallel drivers. Drivers act upon data and combine operators to produce output that is then aggregated by a task and then delivered to another task in a another stage. A driver is a sequence of operator instances, or you can think of a driver as a physical set of operators in memory. It is the lowest level of parallelism in the Presto architecture. A driver has one input and one output.
+
+
+可以看到Task中包括多个并行的Driver，向Driver输入数据，经过其中operators的处理，最终输出数据被task整合然后输入到其他Stage的task中。
