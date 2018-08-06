@@ -248,10 +248,13 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
         return new LocalExecutionPlan(context.getDriverFactories(), partitionedSourceOrder);
     }
 ```
-该方法首先使用内部类Visitor访问PlanNode，输出两个参数，一个是返回值 physicalOperation，一个数通过参数context。
+该方法首先使用内部类Visitor访问PlanNode，输出两个参数，一个是返回值physicalOperation，一个通过参数context传出。
 
 然后调用context.addDriverFactory添加新的DriverFactory。
 
-最终调用LocalExecutionPlan的构造方法，传入context.getDriverFactories()，也就是
+最终调用LocalExecutionPlan的构造方法，传入context.getDriverFactories()，也就是所有的DriverFactory。
+
+我们可以看到，最终的LocalExecutionPlan里面传入的是一个DriverFactory的链表，
+每个DriverFactory中又有一个OperatorFactory的链表，最终我们执行的是OperatorFactory创建的Operator。
 
 
