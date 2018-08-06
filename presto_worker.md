@@ -131,7 +131,7 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
 1. 调用LocalExecutionPlanner.plan创建localExecutionPlan。
 2. 调用createSqlTaskExecution创建SqlTaskExecution
 
-### LocalExecutionPlanner.plan
+### create LocalExecutionPlan
 ```java
     public LocalExecutionPlan plan(
             TaskContext taskContext,
@@ -247,8 +247,11 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
 
         return new LocalExecutionPlan(context.getDriverFactories(), partitionedSourceOrder);
     }
-
 ```
+该方法首先使用内部类Visitor访问PlanNode，输出两个参数，一个是返回值 physicalOperation，一个数通过参数context。
 
+然后调用context.addDriverFactory添加新的DriverFactory。
+
+最终调用LocalExecutionPlan的构造方法，传入context.getDriverFactories()，也就是
 
 
