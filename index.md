@@ -12,4 +12,4 @@
 ### others
 
 1. [presto jdbc并行优化方案](presto_jdbc_Parallelism)
-2. [presto类型演变](presto_types.md)
+2. [presto类型演变](presto_types)
