@@ -162,28 +162,10 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
             partitionChannelTypes = ImmutableList.of(BIGINT);
         }
         else {
-            partitionChannels = partitioningScheme.getPartitioning().getArguments().stream()
-                    .map(ArgumentBinding::getColumn)
-                    .map(outputLayout::indexOf)
-                    .collect(toImmutableList());
-            partitionConstants = partitioningScheme.getPartitioning().getArguments().stream()
-                    .map(argument -> {
-                        if (argument.isConstant()) {
-                            return Optional.of(argument.getConstant());
-                        }
-                        return Optional.<NullableValue>empty();
-                    })
-                    .collect(toImmutableList());
-            partitionChannelTypes = partitioningScheme.getPartitioning().getArguments().stream()
-                    .map(argument -> {
-                        if (argument.isConstant()) {
-                            return argument.getConstant().getType();
-                        }
-                        return types.get(argument.getColumn());
-                    })
-                    .collect(toImmutableList());
+            partitionChannels = ...
+            partitionConstants = ...
+            partitionChannelTypes = ...
         }
-
         PartitionFunction partitionFunction = nodePartitioningManager.getPartitionFunction(taskContext.getSession(), partitioningScheme, partitionChannelTypes);
         OptionalInt nullChannel = OptionalInt.empty();
         Set<Symbol> partitioningColumns = partitioningScheme.getPartitioning().getColumns();
@@ -212,7 +194,61 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
     }
 ```
 该方法首先检查partitioningScheme.getPartitioning().getHandle()，如果分区方式是五种固定分区方式的话，
-直接调用重载的plan方法创建LocalExecutionPlan，且最后一个参数为TaskOutputOperator。
+直接调用重载的plan方法创建LocalExecutionPlan，且最后一个参数为TaskOutputFactory。
+
+否则则会构造PartitionedOutputFactory的各项参数，然后再调用plan，最后一个参数为PartitionedOutputFactory。
+
+下面来看重载的plan方法：
+```java
+    public LocalExecutionPlan plan(
+            TaskContext taskContext,
+            boolean planGrouped,
+            PlanNode plan,
+            List<Symbol> outputLayout,
+            TypeProvider types,
+            List<PlanNodeId> partitionedSourceOrder,
+            OutputFactory outputOperatorFactory)
+    {
+        Session session = taskContext.getSession();
+        LocalExecutionPlanContext context = new LocalExecutionPlanContext(taskContext, types);
+
+        PhysicalOperation physicalOperation = plan.accept(new Visitor(session, planGrouped), context);
+
+        Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(outputLayout, physicalOperation.getLayout());
+
+        List<Type> outputTypes = outputLayout.stream()
+                .map(types::get)
+                .collect(toImmutableList());
+
+        context.addDriverFactory(
+                context.isInputDriver(),
+                true,
+                ImmutableList.<OperatorFactory>builder()
+                        .addAll(physicalOperation.getOperatorFactories())
+                        .add(outputOperatorFactory.createOutputOperator(
+                                context.getNextOperatorId(),
+                                plan.getId(),
+                                outputTypes,
+                                pagePreprocessor,
+                                new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session))))
+                        .build(),
+                context.getDriverInstanceCount(),
+                physicalOperation.getPipelineExecutionStrategy());
+
+        addLookupOuterDrivers(context);
+
+        // notify operator factories that planning has completed
+        context.getDriverFactories().stream()
+                .map(DriverFactory::getOperatorFactories)
+                .flatMap(List::stream)
+                .filter(LocalPlannerAware.class::isInstance)
+                .map(LocalPlannerAware.class::cast)
+                .forEach(LocalPlannerAware::localPlannerComplete);
+
+        return new LocalExecutionPlan(context.getDriverFactories(), partitionedSourceOrder);
+    }
+
+```
 
 
 
