@@ -7,6 +7,7 @@
 3. [Plan Fragmenter](PlanFragmenter)
 4. [ExchangeNode](ExchangeNode)
 5. [Plan Distribution](PlanDistribution)
+6. [presto worker原理](presto_worker.md)
 
 ### others
 
