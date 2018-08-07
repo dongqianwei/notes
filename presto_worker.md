@@ -251,6 +251,8 @@ sqlTask通过调用SqlTaskExecutionFactory.create创建taskExecution:
 ```
 该方法首先使用内部类Visitor访问PlanNode，输出两个参数，一个是返回值physicalOperation，一个通过参数context传出。
 
+1. physicalOperation
+
 这两个参数分别传出什么副作用呢？首先看返回值physicalOperation:
 ```java
 context.addDriverFactory(
@@ -309,6 +311,11 @@ private PhysicalOperation(
 ```
 该方法首先将source节点中的所有operatorFactor添加到列表中，再将当前节点的operatorFactory添加到列表中。
 那么最终的operatorFactories就是从最源头节点对应的operatorFactory一直到当前节点对应的operatorFactory
+
+2. context
+
+context的主要作用是在Visitor内部调用addDriverFactory。在访问某些类型的节点时，可能存在节点的数据源不能通过operator获取，
+
 
 然后调用context.addDriverFactory添加新的DriverFactory。
 
