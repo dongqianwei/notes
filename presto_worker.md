@@ -331,3 +331,47 @@ Tasks contain one or more parallel drivers. Drivers act upon data and combine op
 
 
 可以看到Task中包括多个并行的Driver，向Driver输入数据，经过其中operators的处理，最终输出数据被task整合然后输入到其他Stage的task中。
+
+## taskExecution.addSources
+上文提到，当taskExecution不存在时则创建，相当于通过传入的PlanFragment等信息构造了一个执行任务的状态机，
+里面有driverFactories和driverFactory里面的OperatorFactories。
+状态机构造完成后会调用taskExecution.addSources将需要处理的数据传入:
+
+```java
+public void addSources(List<TaskSource> sources)
+{
+    requireNonNull(sources, "sources is null");
+    checkState(!Thread.holdsLock(this), "Can not add sources while holding a lock on the %s", getClass().getSimpleName());
+
+    try (SetThreadName ignored = new SetThreadName("Task-%s", taskId)) {
+        // update our record of sources and schedule drivers for new partitioned splits
+        Map<PlanNodeId, TaskSource> updatedUnpartitionedSources = updateSources(sources);
+
+        // tell existing drivers about the new splits; it is safe to update drivers
+        // multiple times and out of order because sources contain full record of
+        // the unpartitioned splits
+        for (WeakReference<Driver> driverReference : drivers) {
+            Driver driver = driverReference.get();
+            // the driver can be GCed due to a failure or a limit
+            if (driver == null) {
+                // remove the weak reference from the list to avoid a memory leak
+                // NOTE: this is a concurrent safe operation on a CopyOnWriteArrayList
+                drivers.remove(driverReference);
+                continue;
+            }
+            Optional<PlanNodeId> sourceId = driver.getSourceId();
+            if (!sourceId.isPresent()) {
+                continue;
+            }
+            TaskSource sourceUpdate = updatedUnpartitionedSources.get(sourceId.get());
+            if (sourceUpdate == null) {
+                continue;
+            }
+            driver.updateSource(sourceUpdate);
+        }
+
+        // we may have transitioned to no more splits, so check for completion
+        checkTaskCompletion();
+    }
+}
+```
