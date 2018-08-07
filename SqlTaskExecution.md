@@ -34,7 +34,8 @@ private SqlTaskExecution(
         ImmutableList.Builder<DriverSplitRunnerFactory> driverRunnerFactoriesWithDriverGroupLifeCycle = ImmutableList.builder();
         for (DriverFactory driverFactory : localExecutionPlan.getDriverFactories()) {
             Optional<PlanNodeId> sourceId = driverFactory.getSourceId();
-            
+            //如果driverFactory有sourceId，说明该driver作为整个task的输入节点
+            //添加到driverRunnerFactoriesWithSplitLifeCycle
             if (sourceId.isPresent() && partitionedSources.contains(sourceId.get())) {
                 driverRunnerFactoriesWithSplitLifeCycle.put(sourceId.get(), new DriverSplitRunnerFactory(driverFactory));
             }
