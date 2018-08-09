@@ -54,7 +54,7 @@ planDistribution(plan);
     StageExecutionPlan outputStageExecutionPlan = distributedPlanner.plan(plan.getRoot(), stateMachine.getSession());
     SqlQueryScheduler scheduler = new SqlQueryScheduler()
       {
-      
+        List<SqlStageExecution> stages = createStages()
       }
     queryScheduler.set(scheduler);
   }
