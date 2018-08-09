@@ -4,17 +4,26 @@
 
 
 StatementResource
+
 getQueryResults
+
 -> asyncQueryResults
 
 Query
+
 --> waitForResults
+
 ---> getFutureStateChange
+
 ----> QuerySubmissionFuture.submitQuery
 
+
 SqlQueryManager
+
 -----> createQuery
+
 ------> createQueryInternal
+```
 {
 statement = sqlParser.createStatement()
 QueryExecutionFactory<?> queryExecutionFactory = executionFactories.get(statement.getClass());
@@ -26,8 +35,10 @@ queryExecution = queryExecutionFactory.createQueryExecution(queryId, query, sess
   */
 resourceGroupManager.submit(statement, queryExecution, selectionContext, queryExecutor);
 }
+```
 
 SqlQueryExecution.start
+```
 {
 PlanRoot plan = analyzeQuery();
 ->doAnalyzeQuery
@@ -50,4 +61,5 @@ planDistribution(plan);
 SqlQueryScheduler scheduler = queryScheduler.get();
 scheduler.start();
 }
+```
 
