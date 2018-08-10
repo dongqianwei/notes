@@ -9,6 +9,7 @@
 5. [Plan Distribution](PlanDistribution)
 6. [presto worker原理](presto_worker.md)
 7. [SqlTaskExecution](SqlTaskExecution)
+8. [StageExecutionPlan](StageExecutionPlan)
 
 ### others
 
