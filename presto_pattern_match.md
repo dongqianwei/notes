@@ -175,8 +175,11 @@ public Stream<Rule<?>> getCandidates(Object object)
         return result;
     }
 ```
+
 该方法首先调用matcher.match对node进行模式匹配，匹配结果保存在match中，如果匹配失败，则返回空。
+
 下面看matcher.match的实现:
+
 ```java
 default <T> Match<T> match(Pattern<T> pattern, Object object)
 {
