@@ -230,5 +230,123 @@ public <T> Match<T> matchTypeOf(TypeOfPattern<T> typeOfPattern, Object object, C
 
 可以看出来这种Pattern是为了限制PlanNode的类型，如果类型匹配失败，返回Match.empty()。
 
+同样，EqualsPattern的accept方法也是调用了matcher.matchEquals方法：
+```java
+@Override
+public <T> Match<T> matchEquals(EqualsPattern<T> equalsPattern, Object object, Captures captures)
+{
+    return Match.of((T) object, captures).filter(equalsPattern.expectedValue()::equals);
+}
 
+@Override
+public Match<T> filter(Predicate<? super T> predicate)
+{
+    return predicate.test(value) ? this : empty();
+}
+
+```
+该方法首先构造了一个包含object的match，然后调用filter方法，以equalsPattern.expectedValue()::equals为predicate来filter。
+如果object和equalsPattern.expectedValue()相等，则返回构造的match，否则返回empty。
+
+FilterPattern.accept同样调用了matcher.matchFilter方法：
+```java
+@Override
+public <T> Match<T> matchFilter(FilterPattern<T> filterPattern, Object object, Captures captures)
+{
+    return Match.of((T) object, captures).filter(filterPattern.predicate());
+}
+```
+该方法直接以filterPattern.predicate()作为predicate过滤，满足条件则返回构造的match对象，否则返回empty()
+
+WithPattern.accept方法调用matcher.matchWith，该方法实现比较复杂，首先来看WithPattern的用法。
+WithPattern的构造函数传入两个参数，分别为PropertyPattern<? super T, ?> propertyPattern
+和Pattern<T> previous。
+
+代码中唯一调用该构造函数的地方为Pattern.with方法：
+```java
+public Pattern<T> with(PropertyPattern<? super T, ?> pattern)
+{
+    return new WithPattern<>(pattern, this);
+}
+```
+
+看一个具体的使用场景MergeLimits.Pattern:
+```java
+private static final Pattern<LimitNode> PATTERN = limit()
+            .with(source().matching(limit().capturedAs(CHILD)));
+```
+首先调用limit():
+```java
+public static Pattern<LimitNode> limit()
+{
+    return typeOf(LimitNode.class);
+}
+
+public static <T> Pattern<T> typeOf(Class<T> expectedClass)
+{
+    return new TypeOfPattern<>(expectedClass);
+}
+```
+创建一个TypeOfPattern作为pattern链第一个节点（符合前文提到的pattern链第一个节点类型的限制）。
+然后调用with，传入参数为source().matching(limit().capturedAs(CHILD))。
+
+上面提到过with里面调用了WithPattern的构造函数，传入参数分别为一个PropertyPattern和当前Pattern作为新创建Pattern的previous Pattern。
+PropertyPattern参数，也就是source().matching(limit().capturedAs(CHILD))，究竟是个什么呢？
+
+先看source():
+```java
+public static Property<PlanNode, PlanNode> source()
+{
+    return optionalProperty("source", node -> node.getSources().size() == 1 ?
+            Optional.of(node.getSources().get(0)) :
+            empty());
+}
+
+public static <F, T> Property<F, T> optionalProperty(String name, Function<F, Optional<T>> function)
+{
+    return new Property<>(name, function);
+}
+
+    public Property(String name, Function<F, Optional<T>> function)
+{
+    this.name = name;
+    this.function = function;
+}
+```
+source方法返回的是一个Property对象，其中包含一个String类型的name，这里是source，
+和一个Function对象，Function对象这里是一个会调函数，作用是从给定的PlanNode中获取节点的第一个source子节点，如果没有返回空。
+可以推断出来Property的作用是表示PlanNode的一个属性，可以通过Property里的function回调函数将具体的属性提取出来。
+
+然后在source()上调用matching，参数又是一个Pattern：limit().capturedAs(CHILD)。
+```java
+public <R> PropertyPattern<F, R> matching(Pattern<R> pattern)
+{
+    return PropertyPattern.of(this, pattern);
+}
+```
+matching函数传入了一个新的pattern，然后构造了一个PropertyPattern对象，这个节点包含了一个Property对象和一个Pattern。
+最终这个PropertyPattern对象作为with的参数，构造出最终的PropertyPattern对象。
+
+那么现在PropertyPattern对象是怎么构造出来的请出来，下面看PropertyPattern.accept的实现：
+```java
+    @Override
+    public <T> Match<T> matchWith(WithPattern<T> withPattern, Object object, Captures captures)
+    {
+        Function<? super T, Optional<?>> property = withPattern.getProperty().getFunction();
+        Optional<?> propertyValue = property.apply((T) object);
+
+        Optional<?> resolvedValue = propertyValue
+                .map(value -> value instanceof GroupReference ? lookup.resolve(((GroupReference) value)) : value);
+
+        Match<?> propertyMatch = resolvedValue
+                .map(value -> match(withPattern.getPattern(), value, captures))
+                .orElse(Match.empty());
+        return propertyMatch.map(ignored -> (T) object);
+    }
+```
+该方法首先调用withPattern.getProperty().getFunction()获取到用来提取property的回调函数，然后应用于object将具体的property提取出来。
+如果propertyValue属于GroupReference的话说明该property是Memo结构中的索引，则通过lookup.resolve将具体引用的作为property的PlanNode取出来。
+然后将提取出来的PlanNode用withPattern.getPattern()获取的Pattern匹配并返回结果。
+
+根据上述分析可知，WithPattern的功能是对当前PlanNode的属性作进一步的匹配。
 
