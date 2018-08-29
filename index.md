@@ -10,6 +10,7 @@
 6. [presto worker原理](presto_worker.md)
 7. [SqlTaskExecution](SqlTaskExecution)
 8. [StageExecutionPlan](StageExecutionPlan)
+9. [presto 模式匹配](presto_pattern_match)
 
 ### others
 
