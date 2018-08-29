@@ -42,3 +42,136 @@ public Builder register(Rule<?> rule)
 说明所有合法的pattern链中的第一个pattern都必须是TypeOfPattern类型，即限制匹配的PlanNode类型的Pattern（在后面介绍）。
 
 然后以TypeOfPattern中期望的类(expectedClass)为key将rule保存到rulesByRootType中。
+
+下面看具体的优化过程中是怎么使用pattern match的：
+首先看优化器的optimize方法：
+```java
+    @Override
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    {
+...
+
+        Memo memo = new Memo(idAllocator, plan);
+        Lookup lookup = Lookup.from(planNode -> Stream.of(memo.resolve(planNode)));
+        Matcher matcher = new PlanNodeMatcher(lookup);
+
+        Duration timeout = SystemSessionProperties.getOptimizerTimeout(session);
+        Context context = new Context(memo, lookup, idAllocator, symbolAllocator, System.nanoTime(), timeout.toMillis(), session);
+        exploreGroup(memo.getRootGroup(), context, matcher);
+
+        return memo.extract();
+    }
+```
+首先将planNode转为Memo结构，这样做的原因是planNode是immutable的，如果直接修改planNode中的子节点时需要将整个planTree重新构造一遍，
+资源消耗太大，因此设计了Memo结构将PlanNode的结构拆分开保存，具体实现看Memo代码。
+
+构造LoopUp方便从Memo中查找节点。
+
+构造PlanNodeMatcher，这个类就是presto-matching包中的核心之一，在后面解释。
+
+调用exploreGroup进行实际的优化步骤，第一个参数是memo.getRootGroup()，这是planNode转为Memo结构后根planNode对应的Int类型Id：
+
+```java
+private boolean exploreGroup(int group, Context context, Matcher matcher)
+{
+    // tracks whether this group or any children groups change as
+    // this method executes
+    boolean progress = exploreNode(group, context, matcher);
+
+    while (exploreChildren(group, context, matcher)) {
+        progress = true;
+
+        // if children changed, try current group again
+        // in case we can match additional rules
+        if (!exploreNode(group, context, matcher)) {
+            // no additional matches, so bail out
+            break;
+        }
+    }
+
+    return progress;
+}
+```
+可以看到exploreGroup中首先调用了exploreNode，然后在while循环中调用exploreChildren:
+
+```java
+private boolean exploreNode(int group, Context context, Matcher matcher)
+{
+//首先从memo中根据Id找到对应的PlanNode
+    PlanNode node = context.memo.getNode(group);
+
+    boolean done = false;
+    boolean progress = false;
+
+    while (!done) {
+        context.checkTimeoutNotExhausted();
+
+        done = true;
+        // 找到当前node可能匹配的Rules
+        Iterator<Rule<?>> possiblyMatchingRules = ruleIndex.getCandidates(node).iterator();
+        // 遍历所有可能匹配的Rule
+        while (possiblyMatchingRules.hasNext()) {
+            Rule<?> rule = possiblyMatchingRules.next();
+
+            if (!rule.isEnabled(context.session)) {
+                continue;
+            }
+
+            // 将rule应用与当前节点
+            Rule.Result result = transform(node, rule, matcher, context);
+
+            // 检查是否转换成功
+            if (result.getTransformedPlan().isPresent()) {
+            // 将转换后的子节点替换到memo中
+                node = context.memo.replace(group, result.getTransformedPlan().get(), rule.getClass().getName());
+
+                done = false;
+                progress = true;
+            }
+        }
+    }
+
+    return progress;
+}
+```
+从代码中的注释可以看到该函数分为以下几个步骤：
+
+1. 找到当前node可能匹配的Rules
+
+这是调用ruleIndex.getCandidates(node)方法：
+```java
+public Stream<Rule<?>> getCandidates(Object object)
+{
+    return supertypes(object.getClass())
+            .flatMap(clazz -> rulesByRootType.get(clazz).stream());
+}
+```
+首先获取到当前PlanNode类以及所有父类构成的列表，然后将rulesByRootType中所有以列表中的class为key的rule都取出来并返回。
+
+2. 遍历所有返回的rule，调用transform将rule应用与节点：
+```java
+    private <T> Rule.Result transform(PlanNode node, Rule<T> rule, Matcher matcher, Context context)
+    {
+        Rule.Result result;
+
+        Match<T> match = matcher.match(rule.getPattern(), node);
+
+        if (match.isEmpty()) {
+            return Rule.Result.empty();
+        }
+
+        long duration;
+        try {
+            long start = System.nanoTime();
+            result = rule.apply(match.value(), match.captures(), ruleContext(context));
+            duration = System.nanoTime() - start;
+        }
+        catch (RuntimeException e) {
+            stats.recordFailure(rule);
+            throw e;
+        }
+        stats.record(rule, duration, !result.isEmpty());
+
+        return result;
+    }
+```
