@@ -175,3 +175,60 @@ public Stream<Rule<?>> getCandidates(Object object)
         return result;
     }
 ```
+该方法首先调用matcher.match对node进行模式匹配，匹配结果保存在match中，如果匹配失败，则返回空。
+下面看matcher.match的实现:
+```java
+default <T> Match<T> match(Pattern<T> pattern, Object object)
+{
+    return match(pattern, object, Captures.empty());
+}
+
+@Override
+public <T> Match<T> match(Pattern<T> pattern, Object object, Captures captures)
+{
+    if (pattern.previous() != null) {
+        Match<?> match = match(pattern.previous(), object, captures);
+        return match.flatMap((value) -> pattern.accept(this, value, match.captures()));
+    }
+    else {
+        return pattern.accept(this, object, captures);
+    }
+}
+```
+首先检查当前的pattern.previous是否为空。如果为空，说明当前pattern链中只有一个pattern，则调用pattern.accept方法。
+否则先对pattern.previous()第归调用match方法，再调用当前pattern.accept方法。
+Patten类有5个具体的实现：
+
+1. CapturePattern
+2. EqualsPattern
+3. FilterPattern
+4. TypeOfPattern
+5. WithPattern
+
+上文提到过，任何pattern链的第一个pattern必须是TypeOfPattern，首先看这个类型的accept方法：
+```java
+@Override
+public Match<T> accept(Matcher matcher, Object object, Captures captures)
+{
+    return matcher.matchTypeOf(this, object, captures);
+}
+
+@Override
+public <T> Match<T> matchTypeOf(TypeOfPattern<T> typeOfPattern, Object object, Captures captures)
+{
+    Class<T> expectedClass = typeOfPattern.expectedClass();
+    if (expectedClass.isInstance(object)) {
+        return Match.of(expectedClass.cast(object), captures);
+    }
+    else {
+        return Match.empty();
+    }
+}
+```
+该方法随后调用了matcher的matchTypeOf方法，其检查object是否为typeOfPattern.expectedClass()类型。
+如果是，则返回Match.of(expectedClass，s.cast(object), captures)，否则返回Match.empty()。
+
+可以看出来这种Pattern是为了限制PlanNode的类型，如果类型匹配失败，返回Match.empty()。
+
+
+
