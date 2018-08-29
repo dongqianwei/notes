@@ -350,3 +350,12 @@ matching函数传入了一个新的pattern，然后构造了一个PropertyPatter
 
 根据上述分析可知，WithPattern的功能是对当前PlanNode的属性作进一步的匹配。
 
+CapturePattern.accept调用matcher的matchCapture：
+```java
+@Override
+public <T> Match<T> matchCapture(CapturePattern<T> capturePattern, Object object, Captures captures)
+{
+    return Match.of((T) object, captures.addAll(Captures.ofNullable(capturePattern.capture(), (T) object)));
+}
+```
+该Pattern并不是用来判断节点是否匹配的，而是将当前节点保存到captures中，正如其名：捕获当前节点用于后续优化。
