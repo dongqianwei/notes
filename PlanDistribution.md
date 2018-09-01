@@ -125,8 +125,7 @@ public Map<PlanNodeId, SplitSource> visitRemoteSource(RemoteSourceNode node, Voi
 结果是一个空Map，也就是说对于上层的StageExecutionPlan，其splitSources为空，因为其数据是从其他节点来的，而不是split。
 
 ## SqlQueryScheduler
-StageExecutionPlan生成后，会构造一个SqlQueryScheduler对象,
-在其构造函数中最重要的步骤就是将StageExecutionPlan转为List<SqlStageExecution>列表:
+StageExecutionPlan生成后，会构造一个SqlQueryScheduler对象:
     
 ```java
 public SqlQueryScheduler(QueryStateMachine queryStateMachine,
@@ -177,9 +176,13 @@ public SqlQueryScheduler(QueryStateMachine queryStateMachine,
     ...
     }
 ```
-这个步骤是通过调用createStages完成的，createStages除了创建SqlStageExecution外还有一件重要的事是创建stageSchedulers，
-该成员是StageId与StageScheduler的Map，StageScheduler是最终用来调度任务的调度器，
-每一个SqlStageExecution最终都被相应的调度器调度执行:
+构造函数中调用createStages，主要完成三件事
+
+1. 创建List<SqlStageExecution> stages；
+
+2. 创建stageSchedulers；
+
+3. 创建stageLinkages；
 
 ```java
     private List<SqlStageExecution> createStages(
@@ -321,6 +324,7 @@ public SqlQueryScheduler(QueryStateMachine queryStateMachine,
             }
         });
 
+        // 创建stageLinkages，用于建立父子Stage之间的数据流
         stageLinkages.put(stageId, new StageLinkage(plan.getFragment().getId(), parent, childStages));
 
         // 这里处理分区类型为SCALED_WRITER_DISTRIBUTION的情况，创建类型为 ScaledWriterScheduler
