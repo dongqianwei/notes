@@ -12,6 +12,7 @@
 8. [StageExecutionPlan](StageExecutionPlan)
 9. [presto 模式匹配](presto_pattern_match)
 10. [presto spi 笔记](presto_spi_tips)
+11. [StageLinkage](StageLinkage)
 
 ### others
 
