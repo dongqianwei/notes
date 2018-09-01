@@ -182,7 +182,7 @@ public SqlQueryScheduler(QueryStateMachine queryStateMachine,
 
 2. 创建stageSchedulers；
 
-3. 创建(stageLinkages)[StageLinkage]；
+3. 创建[stageLinkages](StageLinkage)；
 
 ```java
     private List<SqlStageExecution> createStages(
