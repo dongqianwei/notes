@@ -85,7 +85,60 @@ public void processScheduleResults(StageState newState, Set<RemoteTask> newTasks
 该方法主要做两件事：
 1. 调用 parent.addExchangeLocations将子Stage的Exchange地址添加到父节点中
 
-2. 调用child.addOutputBuffers设置子Stage的输出缓冲区
+首先来看parent回调函数的两种实现：
+
+1.1 对于顶级StageExecution没有父节点，那么parent参数为
+```java
+(fragmentId, tasks, noMoreExchangeLocations) -> 
+        updateQueryOutputLocations(queryStateMachine, rootBufferId, tasks, noMoreExchangeLocations)
 
 
+private static void updateQueryOutputLocations(QueryStateMachine queryStateMachine, OutputBufferId rootBufferId, Set<RemoteTask> tasks, boolean noMoreExchangeLocations)
+{
+    Set<URI> bufferLocations = tasks.stream()
+            .map(task -> task.getTaskStatus().getSelf())
+            .map(location -> uriBuilderFrom(location).appendPath("results").appendPath(rootBufferId.toString()).build())
+            .collect(toImmutableSet());
+    queryStateMachine.updateOutputLocations(bufferLocations, noMoreExchangeLocations);
+}
+```
+该回调函数将获取tasks结果的url传入queryStateMachine.outputLocaltions中，用于收集query结果。
+
+1.2 对于子StageExecution，parent参数为：
+```java
+// stage为当前节点的父节点
+stage::addExchangeLocations
+
+public synchronized void addExchangeLocations(PlanFragmentId fragmentId, Set<RemoteTask> sourceTasks, boolean noMoreExchangeLocations)
+{
+
+    RemoteSourceNode remoteSource = exchangeSources.get(fragmentId);
+
+    this.sourceTasks.putAll(remoteSource.getId(), sourceTasks);
+
+    for (RemoteTask task : getAllTasks()) {
+        ImmutableMultimap.Builder<PlanNodeId, Split> newSplits = ImmutableMultimap.builder();
+        for (RemoteTask sourceTask : sourceTasks) {
+            URI exchangeLocation = sourceTask.getTaskStatus().getSelf();
+            newSplits.put(remoteSource.getId(), createRemoteSplitFor(task.getTaskId(), exchangeLocation));
+        }
+        //对所有父节点中的task调用addSplits，这些remoteSplit会使得父Stage从子Stage的task中获取数据作为输入
+        task.addSplits(newSplits.build());
+    }
+
+    if (noMoreExchangeLocations) {
+        completeSourceFragments.add(fragmentId);
+
+        // is the source now complete?
+        if (completeSourceFragments.containsAll(remoteSource.getSourceFragmentIds())) {
+            completeSources.add(remoteSource.getId());
+            for (RemoteTask task : getAllTasks()) {
+                task.noMoreSplits(remoteSource.getId());
+            }
+        }
+    }
+}
+```
+
+2. 调用child.addOutputBuffers设置子Stage的输出缓冲区：
 
