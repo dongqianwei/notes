@@ -388,3 +388,31 @@ return new ScheduleResult(
 }
 ```
 
+根据计算出来的split关系创建任务：
+
+```java
+    private Set<RemoteTask> assignSplits(Multimap<Node, Split> splitAssignment, Multimap<Node, Lifespan> noMoreSplitsNotification)
+    {
+        ImmutableSet.Builder<RemoteTask> newTasks = ImmutableSet.builder();
+
+        ImmutableSet<Node> nodes = ImmutableSet.<Node>builder()
+                .addAll(splitAssignment.keySet())
+                .addAll(noMoreSplitsNotification.keySet())
+                .build();
+        for (Node node : nodes) {
+            // source partitioned tasks can only receive broadcast data; otherwise it would have a different distribution
+            ImmutableMultimap<PlanNodeId, Split> splits = ImmutableMultimap.<PlanNodeId, Split>builder()
+                    .putAll(partitionedNode, splitAssignment.get(node))
+                    .build();
+            ImmutableMultimap.Builder<PlanNodeId, Lifespan> noMoreSplits = ImmutableMultimap.builder();
+            if (noMoreSplitsNotification.containsKey(node)) {
+                noMoreSplits.putAll(partitionedNode, noMoreSplitsNotification.get(node));
+            }
+            newTasks.addAll(stage.scheduleSplits(
+                    node,
+                    splits,
+                    noMoreSplits.build()));
+        }
+        return newTasks.build();
+    }
+```
