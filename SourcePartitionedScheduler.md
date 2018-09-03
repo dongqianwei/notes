@@ -83,6 +83,7 @@ public PlanNode visitTableScan(TableScanNode node, RewriteContext<FragmentProper
 下面着重解释splitSource和splitPlacementPolicy两个参数：
 
 1. splitSource
+
 ```java
 // splictSource来源于plan.getSplitSources()
 Entry<PlanNodeId, SplitSource> entry = Iterables.getOnlyElement(plan.getSplitSources().entrySet());
