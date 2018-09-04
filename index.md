@@ -1,22 +1,23 @@
 ## MY NOTES
 
-### presto 源码
+### presto 源码学习
 
-1. [QueryExecutionFactory](QueryExecutionFactory)
-2. [SqlQueryExecution](SqlQueryExecution)
-3. [Plan Fragmenter](PlanFragmenter)
-4. [ExchangeNode](ExchangeNode)
-5. [Plan Distribution](PlanDistribution)
-6. [presto worker原理](presto_worker.md)
-7. [SqlTaskExecution](SqlTaskExecution)
-8. [StageExecutionPlan](StageExecutionPlan)
-9. [presto 模式匹配](presto_pattern_match)
-10. [presto spi 笔记](presto_spi_tips)
-11. [StageLinkage](StageLinkage)
-12. [SourcePartitionedScheduler](SourcePartitionedScheduler)
+* [QueryExecutionFactory](QueryExecutionFactory)
+* [SqlQueryExecution](SqlQueryExecution)
+* [Plan Fragmenter](PlanFragmenter)
+* [ExchangeNode](ExchangeNode)
+* [Plan Distribution](PlanDistribution)
+* [presto worker原理](presto_worker.md)
+* [SqlTaskExecution](SqlTaskExecution)
+* [StageExecutionPlan](StageExecutionPlan)
+* [presto 模式匹配](presto_pattern_match)
+* [presto spi 笔记](presto_spi_tips)
+* [StageLinkage](StageLinkage)
+* [SourcePartitionedScheduler](SourcePartitionedScheduler)
+* [presto jdbc并行优化方案](presto_jdbc_Parallelism)
+* [presto类型演变](presto_types)
+* [presto summary](presto_summary)
 
-### others
+### 数据库算法
 
-1. [presto jdbc并行优化方案](presto_jdbc_Parallelism)
-2. [presto类型演变](presto_types)
-3. [presto summary](presto_summary)
+#### join算法
