@@ -1,4 +1,4 @@
-## ReorderJoins是优化器中的Rule
+## ReorderJoins是优化器中的Rule，优化目标为找到代价最小的Join排列方式和算法
 
 匹配规则为
 
@@ -273,10 +273,17 @@ if (nodes.size() == 1) {
     if (!TRUE_LITERAL.equals(filter)) {
         planNode = new FilterNode(idAllocator.getNextId(), planNode, filter);
     }
+    // 调用代价计算器计算planNode代价并返回结果
     return createJoinEnumerationResult(planNode);
 }
 // 第归调用chooseJoinOrder
 return chooseJoinOrder(nodes, outputSymbols);
+}
+
+// 调用代价计算器
+private JoinEnumerationResult createJoinEnumerationResult(PlanNode planNode)
+{
+return JoinEnumerationResult.createJoinEnumerationResult(Optional.of(planNode), costProvider.getCumulativeCost(planNode));
 }
 ```
  
@@ -286,6 +293,7 @@ return chooseJoinOrder(nodes, outputSymbols);
 private JoinEnumerationResult setJoinNodeProperties(JoinNode joinNode)
 {
 // TODO avoid stat (but not cost) recalculation for all considered (distribution,flip) pairs, since resulting relation is the same in all case
+// 如果left或者right的表足够小，将小表设置为右表，将算法设置为REPLICATED，调用代价计算器计算代价返回。
 if (isAtMostScalar(joinNode.getRight(), lookup)) {
     return createJoinEnumerationResult(joinNode.withDistributionType(REPLICATED));
 }
@@ -294,7 +302,9 @@ if (isAtMostScalar(joinNode.getLeft(), lookup)) {
 }
 
 List<JoinEnumerationResult> possibleJoinNodes = new ArrayList<>();
+// 获取系统配置的分布式JOIN算法
 JoinDistributionType joinDistributionType = getJoinDistributionType(session);
+// 计算各种排列和算法的可能代价
 if (joinDistributionType.canRepartition() && !joinNode.isCrossJoin()) {
     possibleJoinNodes.add(createJoinEnumerationResult(joinNode.withDistributionType(PARTITIONED)));
     possibleJoinNodes.add(createJoinEnumerationResult(joinNode.flipChildren().withDistributionType(PARTITIONED)));
@@ -306,6 +316,7 @@ if (joinDistributionType.canReplicate()) {
 if (possibleJoinNodes.stream().anyMatch(UNKNOWN_COST_RESULT::equals)) {
     return UNKNOWN_COST_RESULT;
 }
+// 返回最小代价的组合结果
 return resultComparator.min(possibleJoinNodes);
 }
 
