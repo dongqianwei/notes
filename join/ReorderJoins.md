@@ -94,9 +94,11 @@ MultiJoinNode toMultiJoinNode()
             if (bestResult == null) {
                 checkState(sources.size() > 1, "sources size is less than or equal to one");
                 ImmutableList.Builder<JoinEnumerationResult> resultBuilder = ImmutableList.builder();
-                // 生成sources.size()
+                // 生成所有可能的组合
                 Set<Set<Integer>> partitions = generatePartitions(sources.size());
                 for (Set<Integer> partition : partitions) {
+                    // 遍历所有的组合
+                    // （2.1）
                     JoinEnumerationResult result = createJoinAccordingToPartitioning(sources, outputSymbols, partition);
                     if (result.equals(UNKNOWN_COST_RESULT)) {
                         memo.put(multiJoinKey, result);
@@ -120,6 +122,98 @@ MultiJoinNode toMultiJoinNode()
             bestResult.planNode.ifPresent((planNode) -> log.debug("Least cost join was: %s", planNode));
             return bestResult;
         }
+```
+
+2.1 createJoinAccordingToPartitioning
+
+```java
+JoinEnumerationResult createJoinAccordingToPartitioning(LinkedHashSet<PlanNode> sources, List<Symbol> outputSymbols, Set<Integer> partitioning)
+{
+List<PlanNode> sourceList = ImmutableList.copyOf(sources);
+// 根据partitioning得到leftSources和rightSources
+LinkedHashSet<PlanNode> leftSources = partitioning.stream()
+        .map(sourceList::get)
+        .collect(toCollection(LinkedHashSet::new));
+LinkedHashSet<PlanNode> rightSources = sources.stream()
+        .filter(source -> !leftSources.contains(source))
+        .collect(toCollection(LinkedHashSet::new));
+// 调用createJoin
+return createJoin(leftSources, rightSources, outputSymbols);
+}
+
+private JoinEnumerationResult createJoin(LinkedHashSet<PlanNode> leftSources, LinkedHashSet<PlanNode> rightSources, List<Symbol> outputSymbols)
+{
+// leftSources中的所有输出符号
+Set<Symbol> leftSymbols = leftSources.stream()
+        .flatMap(node -> node.getOutputSymbols().stream())
+        .collect(toImmutableSet());
+// rightSources中的所有输出符号
+Set<Symbol> rightSymbols = rightSources.stream()
+        .flatMap(node -> node.getOutputSymbols().stream())
+        .collect(toImmutableSet());
+
+List<Expression> joinPredicates = getJoinPredicates(leftSymbols, rightSymbols);
+List<EquiJoinClause> joinConditions = joinPredicates.stream()
+        .filter(JoinEnumerator::isJoinEqualityCondition)
+        .map(predicate -> toEquiJoinClause((ComparisonExpression) predicate, leftSymbols))
+        .collect(toImmutableList());
+if (joinConditions.isEmpty()) {
+    return INFINITE_COST_RESULT;
+}
+List<Expression> joinFilters = joinPredicates.stream()
+        .filter(predicate -> !isJoinEqualityCondition(predicate))
+        .collect(toImmutableList());
+
+Set<Symbol> requiredJoinSymbols = ImmutableSet.<Symbol>builder()
+        .addAll(outputSymbols)
+        .addAll(SymbolsExtractor.extractUnique(joinPredicates))
+        .build();
+
+JoinEnumerationResult leftResult = getJoinSource(
+        leftSources,
+        requiredJoinSymbols.stream()
+                .filter(leftSymbols::contains)
+                .collect(toImmutableList()));
+if (leftResult.equals(UNKNOWN_COST_RESULT)) {
+    return UNKNOWN_COST_RESULT;
+}
+if (leftResult.equals(INFINITE_COST_RESULT)) {
+    return INFINITE_COST_RESULT;
+}
+
+PlanNode left = leftResult.planNode.orElseThrow(() -> new VerifyException("Plan node is not present"));
+
+JoinEnumerationResult rightResult = getJoinSource(
+        rightSources,
+        requiredJoinSymbols.stream()
+                .filter(rightSymbols::contains)
+                .collect(toImmutableList()));
+if (rightResult.equals(UNKNOWN_COST_RESULT)) {
+    return UNKNOWN_COST_RESULT;
+}
+if (rightResult.equals(INFINITE_COST_RESULT)) {
+    return INFINITE_COST_RESULT;
+}
+
+PlanNode right = rightResult.planNode.orElseThrow(() -> new VerifyException("Plan node is not present"));
+
+// sort output symbols so that the left input symbols are first
+List<Symbol> sortedOutputSymbols = Stream.concat(left.getOutputSymbols().stream(), right.getOutputSymbols().stream())
+        .filter(outputSymbols::contains)
+        .collect(toImmutableList());
+
+return setJoinNodeProperties(new JoinNode(
+        idAllocator.getNextId(),
+        INNER,
+        left,
+        right,
+        joinConditions,
+        sortedOutputSymbols,
+        joinFilters.isEmpty() ? Optional.empty() : Optional.of(and(joinFilters)),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty()));
+}
 ```
 
 
