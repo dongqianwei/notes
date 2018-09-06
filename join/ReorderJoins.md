@@ -151,29 +151,37 @@ Set<Symbol> leftSymbols = leftSources.stream()
 Set<Symbol> rightSymbols = rightSources.stream()
         .flatMap(node -> node.getOutputSymbols().stream())
         .collect(toImmutableSet());
-
+// 获取所有join predicates
+// (2.1.1)
 List<Expression> joinPredicates = getJoinPredicates(leftSymbols, rightSymbols);
+// 过滤出所有Equal类型的条件
 List<EquiJoinClause> joinConditions = joinPredicates.stream()
         .filter(JoinEnumerator::isJoinEqualityCondition)
         .map(predicate -> toEquiJoinClause((ComparisonExpression) predicate, leftSymbols))
         .collect(toImmutableList());
+// 如果相等类型的条件为空，说明所有join都是cross join，返回INFINITE_COST_RESULT，即cost无限大，无法估计
 if (joinConditions.isEmpty()) {
     return INFINITE_COST_RESULT;
 }
+// 过滤出所有Join Filters
 List<Expression> joinFilters = joinPredicates.stream()
         .filter(predicate -> !isJoinEqualityCondition(predicate))
         .collect(toImmutableList());
 
+// 所有join涉及到的列，包括结果中的和join predicates中的
 Set<Symbol> requiredJoinSymbols = ImmutableSet.<Symbol>builder()
         .addAll(outputSymbols)
         .addAll(SymbolsExtractor.extractUnique(joinPredicates))
         .build();
 
+// 对leftSources第归调用chooseJoinOrder，以及处理leftSources.size() == 1时的终止条件
+// (2.1.2)
 JoinEnumerationResult leftResult = getJoinSource(
         leftSources,
         requiredJoinSymbols.stream()
                 .filter(leftSymbols::contains)
                 .collect(toImmutableList()));
+// cost无法估计或者无限大，直接返回
 if (leftResult.equals(UNKNOWN_COST_RESULT)) {
     return UNKNOWN_COST_RESULT;
 }
@@ -182,7 +190,7 @@ if (leftResult.equals(INFINITE_COST_RESULT)) {
 }
 
 PlanNode left = leftResult.planNode.orElseThrow(() -> new VerifyException("Plan node is not present"));
-
+// 处理rightResult
 JoinEnumerationResult rightResult = getJoinSource(
         rightSources,
         requiredJoinSymbols.stream()
@@ -201,7 +209,9 @@ PlanNode right = rightResult.planNode.orElseThrow(() -> new VerifyException("Pla
 List<Symbol> sortedOutputSymbols = Stream.concat(left.getOutputSymbols().stream(), right.getOutputSymbols().stream())
         .filter(outputSymbols::contains)
         .collect(toImmutableList());
-
+// 使用最优的leftSource和rightSource组合新的JoinNode
+// 调用setJoinNodeProperties对当前joinNode计算所有的组合，选择最优组合
+// (2.1.3)
 return setJoinNodeProperties(new JoinNode(
         idAllocator.getNextId(),
         INNER,
