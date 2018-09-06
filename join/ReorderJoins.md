@@ -1,4 +1,6 @@
-ReorderJoins是优化器中的Rule，Pattern为:
+## ReorderJoins是优化器中的Rule
+
+匹配规则为
 
 ```java
 private static final Pattern<JoinNode> PATTERN = join().matching(
@@ -228,7 +230,84 @@ return setJoinNodeProperties(new JoinNode(
 
         2.1.1 getJoinPredicates
         
+```java
+private List<Expression> getJoinPredicates(Set<Symbol> leftSymbols, Set<Symbol> rightSymbols)
+{
+ImmutableList.Builder<Expression> joinPredicatesBuilder = ImmutableList.builder();
+
+// This takes all conjuncts that were part of allFilters that
+// could not be used for equality inference.
+// If they use both the left and right symbols, we add them to the list of joinPredicates
+stream(nonInferrableConjuncts(allFilter))
+.map(conjunct -> allFilterInference.rewriteExpression(conjunct, symbol -> leftSymbols.contains(symbol) || rightSymbols.contains(symbol)))
+.filter(Objects::nonNull)
+// filter expressions that contain only left or right symbols
+.filter(conjunct -> allFilterInference.rewriteExpression(conjunct, leftSymbols::contains) == null)
+.filter(conjunct -> allFilterInference.rewriteExpression(conjunct, rightSymbols::contains) == null)
+.forEach(joinPredicatesBuilder::add);
+
+// create equality inference on available symbols
+// TODO: make generateEqualitiesPartitionedBy take left and right scope
+List<Expression> joinEqualities = allFilterInference.generateEqualitiesPartitionedBy(symbol -> leftSymbols.contains(symbol) || rightSymbols.contains(symbol)).getScopeEqualities();
+EqualityInference joinInference = createEqualityInference(joinEqualities.toArray(new Expression[0]));
+joinPredicatesBuilder.addAll(joinInference.generateEqualitiesPartitionedBy(in(leftSymbols)).getScopeStraddlingEqualities());
+
+return joinPredicatesBuilder.build();
+}
+```
         2.1.2 getJoinSource
-        
+ 
+```java
+private JoinEnumerationResult getJoinSource(LinkedHashSet<PlanNode> nodes, List<Symbol> outputSymbols)
+{
+// 如果nodes.size() == 1，进入第归调用的终止条件
+if (nodes.size() == 1) {
+    PlanNode planNode = getOnlyElement(nodes);
+    ImmutableList.Builder<Expression> predicates = ImmutableList.builder();
+    predicates.addAll(allFilterInference.generateEqualitiesPartitionedBy(outputSymbols::contains).getScopeEqualities());
+    stream(nonInferrableConjuncts(allFilter))
+            .map(conjunct -> allFilterInference.rewriteExpression(conjunct, outputSymbols::contains))
+            .filter(Objects::nonNull)
+            .forEach(predicates::add);
+    Expression filter = combineConjuncts(predicates.build());
+    if (!TRUE_LITERAL.equals(filter)) {
+        planNode = new FilterNode(idAllocator.getNextId(), planNode, filter);
+    }
+    return createJoinEnumerationResult(planNode);
+}
+// 第归调用chooseJoinOrder
+return chooseJoinOrder(nodes, outputSymbols);
+}
+```
+ 
         2.1.3 setJoinNodeProperties
+ 
+```java
+private JoinEnumerationResult setJoinNodeProperties(JoinNode joinNode)
+{
+// TODO avoid stat (but not cost) recalculation for all considered (distribution,flip) pairs, since resulting relation is the same in all case
+if (isAtMostScalar(joinNode.getRight(), lookup)) {
+    return createJoinEnumerationResult(joinNode.withDistributionType(REPLICATED));
+}
+if (isAtMostScalar(joinNode.getLeft(), lookup)) {
+    return createJoinEnumerationResult(joinNode.flipChildren().withDistributionType(REPLICATED));
+}
+
+List<JoinEnumerationResult> possibleJoinNodes = new ArrayList<>();
+JoinDistributionType joinDistributionType = getJoinDistributionType(session);
+if (joinDistributionType.canRepartition() && !joinNode.isCrossJoin()) {
+    possibleJoinNodes.add(createJoinEnumerationResult(joinNode.withDistributionType(PARTITIONED)));
+    possibleJoinNodes.add(createJoinEnumerationResult(joinNode.flipChildren().withDistributionType(PARTITIONED)));
+}
+if (joinDistributionType.canReplicate()) {
+    possibleJoinNodes.add(createJoinEnumerationResult(joinNode.withDistributionType(REPLICATED)));
+    possibleJoinNodes.add(createJoinEnumerationResult(joinNode.flipChildren().withDistributionType(REPLICATED)));
+}
+if (possibleJoinNodes.stream().anyMatch(UNKNOWN_COST_RESULT::equals)) {
+    return UNKNOWN_COST_RESULT;
+}
+return resultComparator.min(possibleJoinNodes);
+}
+
+```
 
