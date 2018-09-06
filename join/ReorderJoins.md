@@ -124,7 +124,7 @@ MultiJoinNode toMultiJoinNode()
         }
 ```
 
-2.1 createJoinAccordingToPartitioning
+    2.1 createJoinAccordingToPartitioning
 
 ```java
 JoinEnumerationResult createJoinAccordingToPartitioning(LinkedHashSet<PlanNode> sources, List<Symbol> outputSymbols, Set<Integer> partitioning)
@@ -226,5 +226,9 @@ return setJoinNodeProperties(new JoinNode(
 }
 ```
 
-
+        2.1.1 getJoinPredicates
+        
+        2.1.2 getJoinSource
+        
+        2.1.3 setJoinNodeProperties
 
