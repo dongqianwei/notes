@@ -17,7 +17,5 @@
 * [presto jdbc并行优化方案](presto_jdbc_Parallelism)
 * [presto类型演变](presto_types)
 * [presto summary](presto_summary)
-
-### 数据库算法
-
-#### join算法
+* join
+** [ReorderJoins](join/ReorderJoins)
