@@ -2,6 +2,7 @@
 
 presto 基于代价的优化核心是计划的代价如何衡量，是由两个接口提供的：StatsCalculator vs CostCalculator
 
+
 ```java
 // 统计信息计算器
 public interface StatsCalculator
@@ -287,3 +288,18 @@ public class ComposableStatsCalculator
     }
 }
 ```
+
+2. CostCalculator 代价计算器
+
+CostCalculator有两个实现类：
+
+CostCalculatorUsingExchanges和CostCalculatorWithEstimatedExchanges
+
+其中CostCalculatorWithEstimatedExchanges计算器在优化器AddExchanges步骤之前调用；
+CostCalculatorUsingExchanges计算器在AddExchanges步骤之后调用。
+
+由于AddExchanges之前PlanNode中没有Exchange节点，
+因此CostCalculatorWithEstimatedExchanges计算器会首先对于会添加ExchangeNode的节点估算出将来会添加的ExchangeNode的代价，
+然后再调用CostCalculatorUsingExchanges计算实际节点的代价（不包含ExchangeNode），最后将两个代价相加。
+
+AddExchanges之后直接调用CostCalculatorUsingExchanges就可以了。
