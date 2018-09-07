@@ -3,6 +3,7 @@
 presto 基于代价的优化核心是计划的代价如何衡量，是由两个接口提供的：StatsCalculator vs CostCalculator
 
 ```java
+// 统计信息计算器
 public interface StatsCalculator
 {
     /**
@@ -20,6 +21,7 @@ public interface StatsCalculator
             TypeProvider types);
 }
 
+// 代价计算器
 public interface CostCalculator
 {
     /**
@@ -42,4 +44,182 @@ public interface CostCalculator
     @interface EstimatedExchanges {}
 }
 
+```
+
+1. StatsCalculator 统计信息计算器
+
+优化器中使用的StatsCalculator接口的实现类为SelectingStatsCalculator。
+该实现类包装了两个具体的实现类，分别为oldStatsCalculator和newStatsCalculator：
+
+```java
+public class SelectingStatsCalculator
+        implements StatsCalculator
+{
+    private final StatsCalculator oldStatsCalculator;
+    private final StatsCalculator newStatsCalculator;
+
+    @Inject
+    public SelectingStatsCalculator(@Old StatsCalculator oldStatsCalculator, @New StatsCalculator newStatsCalculator)
+    {
+        this.oldStatsCalculator = requireNonNull(oldStatsCalculator, "oldStatsCalculator can not be null");
+        this.newStatsCalculator = requireNonNull(newStatsCalculator, "newStatsCalculator can not be null");
+    }
+
+    @Override
+    public PlanNodeStatsEstimate calculateStats(PlanNode node, StatsProvider sourceStats, Lookup lookup, Session session, TypeProvider types)
+    {
+        if (SystemSessionProperties.isEnableNewStatsCalculator(session)) {
+            return newStatsCalculator.calculateStats(node, sourceStats, lookup, session, types);
+        }
+        else {
+            return oldStatsCalculator.calculateStats(node, sourceStats, lookup, session, types);
+        }
+    }
+}
+```
+
+使用哪一个具体实现取决于系统参数配置enable_new_stats_calculator；
+
+其中oldStatsCalculator为CoefficientBasedStatsCalculator；
+
+newStatsCalculator为ComposableStatsCalculator(组件化统计信息计算器)
+
+其中CoefficientBasedStatsCalculator通过Visitor模式访问PlanNode中的各节点，
+ComposableStatsCalculator通过注册包含匹配模式的规则来访问PlanNode中各节点。
+
+1.1 CoefficientBasedStatsCalculator
+
+```java
+    private class Visitor
+            extends PlanVisitor<PlanNodeStatsEstimate, Void>
+    {
+        // 用来计算PlanNode的source的统计信息
+        private final StatsProvider sourceStats;
+        private final Session session;
+
+        public Visitor(StatsProvider sourceStats, Session session)
+        {
+            this.sourceStats = requireNonNull(sourceStats, "sourceStats is null");
+            this.session = requireNonNull(session, "session is null");
+        }
+
+        private PlanNodeStatsEstimate getStats(PlanNode sourceNode)
+        {
+            // 计算source节点
+            return sourceStats.getStats(sourceNode);
+        }
+
+        @Override
+        protected PlanNodeStatsEstimate visitPlan(PlanNode node, Void context)
+        {
+            // 默认是未知统计信息
+            return UNKNOWN_STATS;
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitGroupReference(GroupReference node, Void context)
+        {
+            // StatsCalculator should not be directly called on GroupReference
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitOutput(OutputNode node, Void context)
+        {
+            return getStats(node.getSource());
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitFilter(FilterNode node, Void context)
+        {
+            // 对于FilterNode，将source的统计信息乘以过滤系数（0.5），即默认过滤后的数据为原数据量的50%
+            PlanNodeStatsEstimate sourceStats = getStats(node.getSource());
+            return sourceStats.mapOutputRowCount(value -> value * FILTER_COEFFICIENT);
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitProject(ProjectNode node, Void context)
+        {
+            return getStats(node.getSource());
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitJoin(JoinNode node, Void context)
+        {
+            // 对于Join节点，获取左右子表的统计信息，取其中行数多的乘以JOIN匹配系数，默认值为2
+            PlanNodeStatsEstimate leftStats = getStats(node.getLeft());
+            PlanNodeStatsEstimate rightStats = getStats(node.getRight());
+
+            PlanNodeStatsEstimate.Builder joinStats = PlanNodeStatsEstimate.builder();
+            double rowCount = Math.max(leftStats.getOutputRowCount(), rightStats.getOutputRowCount()) * JOIN_MATCHING_COEFFICIENT;
+            joinStats.setOutputRowCount(rowCount);
+            return joinStats.build();
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitExchange(ExchangeNode node, Void context)
+        {
+        // 对于Exchange节点，取所有源节点统计数据之和
+            double rowCount = 0;
+            for (int i = 0; i < node.getSources().size(); i++) {
+                PlanNodeStatsEstimate sourceStat = getStats(node.getSources().get(i));
+                rowCount = rowCount + sourceStat.getOutputRowCount();
+            }
+
+            return PlanNodeStatsEstimate.builder()
+                    .setOutputRowCount(rowCount)
+                    .build();
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitTableScan(TableScanNode node, Void context)
+        {
+        // tablescan节点从元数据中获取统计信息
+            Constraint<ColumnHandle> constraint = new Constraint<>(node.getCurrentConstraint());
+            TableStatistics tableStatistics = metadata.getTableStatistics(session, node.getTable(), constraint);
+            return PlanNodeStatsEstimate.builder()
+                    .setOutputRowCount(tableStatistics.getRowCount().getValue())
+                    .build();
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitValues(ValuesNode node, Void context)
+        {
+            int valuesCount = node.getRows().size();
+            return PlanNodeStatsEstimate.builder()
+                    .setOutputRowCount(valuesCount)
+                    .build();
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitEnforceSingleRow(EnforceSingleRowNode node, Void context)
+        {
+            return PlanNodeStatsEstimate.builder()
+                    .setOutputRowCount(1.0)
+                    .build();
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitSemiJoin(SemiJoinNode node, Void context)
+        {
+        // semijoin 取源节点统计数据乘以Join匹配系数
+            PlanNodeStatsEstimate sourceStats = getStats(node.getSource());
+            return sourceStats.mapOutputRowCount(rowCount -> rowCount * JOIN_MATCHING_COEFFICIENT);
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitLimit(LimitNode node, Void context)
+        {
+        // Limit节点取源节点统计数据和limit的最小值作为结果
+            PlanNodeStatsEstimate sourceStats = getStats(node.getSource());
+            PlanNodeStatsEstimate.Builder limitStats = PlanNodeStatsEstimate.builder();
+            if (sourceStats.getOutputRowCount() < node.getCount()) {
+                limitStats.setOutputRowCount(sourceStats.getOutputRowCount());
+            }
+            else {
+                limitStats.setOutputRowCount(node.getCount());
+            }
+            return limitStats.build();
+        }
+    }
 ```
