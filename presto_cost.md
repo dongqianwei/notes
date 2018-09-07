@@ -223,3 +223,67 @@ ComposableStatsCalculator通过注册包含匹配模式的规则来访问PlanNod
         }
     }
 ```
+
+1.2 ComposableStatsCalculator
+
+```java
+public class ComposableStatsCalculator
+        implements StatsCalculator
+{
+    private final ListMultimap<Class<?>, Rule<?>> rulesByRootType;
+
+// 通过构造函数传入规则列表
+    public ComposableStatsCalculator(List<Rule<?>> rules)
+    {
+    // 将rules转成class => list<Rule> 的 multiMap结构
+        this.rulesByRootType = rules.stream()
+                .peek(rule -> {
+                    checkArgument(rule.getPattern() instanceof TypeOfPattern, "Rule pattern must be TypeOfPattern");
+                    Class<?> expectedClass = ((TypeOfPattern<?>) rule.getPattern()).expectedClass();
+                    checkArgument(!expectedClass.isInterface() && !Modifier.isAbstract(expectedClass.getModifiers()), "Rule must be registered on a concrete class");
+                })
+                .collect(toMultimap(
+                        rule -> ((TypeOfPattern<?>) rule.getPattern()).expectedClass(),
+                        rule -> rule,
+                        ArrayListMultimap::create));
+    }
+
+// 返回node的rules
+    private Stream<Rule<?>> getCandidates(PlanNode node)
+    {
+        for (Class<?> superclass = node.getClass().getSuperclass(); superclass != null; superclass = superclass.getSuperclass()) {
+            // This is important because rule ordering, given in the constructor, is significant.
+            // We can't check this fully in the constructor, since abstract class may lack `abstract` modifier.
+            checkState(rulesByRootType.get(superclass).isEmpty(), "Cannot maintain rule order because there is rule registered for %s", superclass);
+        }
+        return rulesByRootType.get(node.getClass()).stream();
+    }
+
+    @Override
+    public PlanNodeStatsEstimate calculateStats(PlanNode node, StatsProvider sourceStats, Lookup lookup, Session session, TypeProvider types)
+    {
+    // 遍历所有node对应的的rules，计算统计信息，如果成功计算统计信息，返回。
+        Iterator<Rule<?>> ruleIterator = getCandidates(node).iterator();
+        while (ruleIterator.hasNext()) {
+            Rule<?> rule = ruleIterator.next();
+            Optional<PlanNodeStatsEstimate> calculatedStats = calculateStats(rule, node, sourceStats, lookup, session, types);
+            if (calculatedStats.isPresent()) {
+                return calculatedStats.get();
+            }
+        }
+        return PlanNodeStatsEstimate.UNKNOWN_STATS;
+    }
+
+    private static <T extends PlanNode> Optional<PlanNodeStatsEstimate> calculateStats(Rule<T> rule, PlanNode node, StatsProvider sourceStats, Lookup lookup, Session session, TypeProvider types)
+    {
+        return rule.calculate((T) node, sourceStats, lookup, session, types);
+    }
+
+    public interface Rule<T extends PlanNode>
+    {
+        Pattern<T> getPattern();
+
+        Optional<PlanNodeStatsEstimate> calculate(T node, StatsProvider sourceStats, Lookup lookup, Session session, TypeProvider types);
+    }
+}
+```
