@@ -18,7 +18,7 @@
 * [presto类型演变](presto_types)
 * [presto summary](presto_summary)
 * 优化器
-  * [presto基于代价的优化](presto_cost)
+  * [presto基于代价的优化](optimize/presto_cost)
 * join
   * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
   * [ReorderJoins](join/ReorderJoins)
