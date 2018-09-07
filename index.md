@@ -17,7 +17,8 @@
 * [presto jdbc并行优化方案](presto_jdbc_Parallelism)
 * [presto类型演变](presto_types)
 * [presto summary](presto_summary)
-* [presto基于代价的优化](presto_cost)
+* 优化器
+  * [presto基于代价的优化](presto_cost)
 * join
   * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
   * [ReorderJoins](join/ReorderJoins)
