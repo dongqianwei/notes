@@ -10,7 +10,6 @@
 * [presto worker原理](presto_worker.md)
 * [SqlTaskExecution](SqlTaskExecution)
 * [StageExecutionPlan](StageExecutionPlan)
-* [presto 模式匹配](presto_pattern_match)
 * [presto spi 笔记](presto_spi_tips)
 * [StageLinkage](StageLinkage)
 * [SourcePartitionedScheduler](SourcePartitionedScheduler)
@@ -18,7 +17,8 @@
 * [presto类型演变](presto_types)
 * [presto summary](presto_summary)
 * 优化器
+  * [presto 模式匹配](presto_pattern_match)
   * [presto基于代价的优化](optimize/presto_cost)
-* join
-  * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
-  * [ReorderJoins](join/ReorderJoins)
+  * join
+    * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
+    * [ReorderJoins](join/ReorderJoins)
