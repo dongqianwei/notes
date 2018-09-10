@@ -19,6 +19,8 @@
 * 优化器
   * [presto 模式匹配](presto_pattern_match)
   * [presto基于代价的优化](optimize/presto_cost)
-  * join
-    * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
-    * [ReorderJoins](join/ReorderJoins)
+* join
+  * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
+  * [ReorderJoins](join/ReorderJoins)
+  * [PARTITIONED JOIN](presto_partitioned_join)
+  * [REPLICATED JOIN](presto_replicated_join)
