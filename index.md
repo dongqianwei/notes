@@ -22,5 +22,5 @@
 * join
   * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
   * [ReorderJoins](join/ReorderJoins)
-  * [PARTITIONED JOIN](presto_partitioned_join)
-  * [REPLICATED JOIN](presto_replicated_join)
+  * [PARTITIONED JOIN](join/presto_partitioned_join)
+  * [REPLICATED JOIN](join/presto_replicated_join)
