@@ -24,3 +24,8 @@
   * [ReorderJoins](join/ReorderJoins)
   * [PARTITIONED JOIN](join/presto_partitioned_join)
   * [REPLICATED JOIN](join/presto_replicated_join)
+
+### 容器技术
+
+* [docker](container/docker)
+* [kubernetes](container/kubernetes)
