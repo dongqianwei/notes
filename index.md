@@ -26,6 +26,9 @@
   * [ReorderJoins](join/ReorderJoins)
   * [PARTITIONED JOIN](join/presto_partitioned_join)
   * [REPLICATED JOIN](join/presto_replicated_join)
+* plugins
+  * jdbc(TODO)
+  * Redis(TODO)
 
 ### 容器技术
 
