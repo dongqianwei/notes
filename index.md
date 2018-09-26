@@ -10,7 +10,9 @@
 * [presto worker原理](presto_worker.md)
 * [SqlTaskExecution](SqlTaskExecution)
 * [StageExecutionPlan](StageExecutionPlan)
-* [presto spi 笔记](presto_spi_tips)
+* presto spi
+  * [ConnectorPageSourceProvider vs ConnectorRecordSetProvider](presto_spi/ConnectorPageSourceProvider)
+  * spi components
 * [StageLinkage](StageLinkage)
 * [SourcePartitionedScheduler](SourcePartitionedScheduler)
 * [presto jdbc并行优化方案](presto_jdbc_Parallelism)
