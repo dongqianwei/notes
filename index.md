@@ -28,7 +28,7 @@
   * [REPLICATED JOIN](join/presto_replicated_join)
 * plugins
   * jdbc(TODO)
-  * Redis(TODO)
+  * [Redis](plugins/redis)
 
 ### 容器技术
 
