@@ -1,4 +1,4 @@
-## 手册
+## redis插件手册
 
 [redis 插件官方手册](https://prestodb.io/docs/current/connector/redis.html)
 
