@@ -31,6 +31,7 @@
   * redis
     * [Redis手册](plugins/redis_manual)
     * [Redis实现](plugins/redis_implementation)
+    * [Redis解码器](plugins/redis_decoder)
 
 ### 容器技术
 
