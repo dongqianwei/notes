@@ -2,6 +2,10 @@
 
 [redis 插件官方手册](https://prestodb.io/docs/current/connector/redis.html)
 
+每一个redis键值对都会在presto中表示为一行数据。行可以进一步更具表描述文件分解为多个cell。
+
+当前只支持String和Hash两种类型，set和zset类型的数据目前无法查询。
+
 1. 配置项：
 
 名称 | 说明
@@ -30,7 +34,38 @@ _value_length |	BIGINT |	Number of bytes in the value.
 _key_corrupt |	BOOLEAN |	True if the decoder could not decode the key for this row. When true, data columns mapped from the key should be treated as invalid.
 _value_corrupt |	BOOLEAN |	True if the decoder could not decode the message for this row. When true, data columns mapped from the value should be treated as invalid.
 
-如果没有表描述文件，_key_corrupt 和 _value_corrupt 列应该都为false。
+如果没有表
+文件，_key_corrupt 和 _value_corrupt 列应该都为false。
 
-3. 表描述文件
+3. 表定义文件
 
+通过表定义文件可以将key/value 字符串进一步解析为新的列。
+每一个定义文件包含了一个表的定义，文件名是任意的，但必须以json结尾。
+
+```json
+{
+    "tableName": ...,
+    "schemaName": ...,
+    "key": {
+        "dataFormat": ...,
+        "fields": [
+            ...
+        ]
+    },
+    "value": {
+        "dataFormat": ...,
+        "fields": [
+            ...
+       ]
+    }
+}
+```
+
+字段 |是否必须 |	类型 |	描述
+--|--|--|--
+tableName |	required |	string | 该文件定义的表名。
+schemaName |	optional |	string | 表所属的schema，如果为空，使用默认值。
+key |	optional |	JSON object |	映射到键的相关列的字段定义。
+value |	optional |	JSON object |	映射到值的相关列的字段定义。
+
+其中value的dataFormat支持hash类型，以支持redis中的hash类型。
