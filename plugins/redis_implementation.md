@@ -246,8 +246,113 @@ RedisRecordCursor(
             fetchKeys();
         }
 
-        根据key获取到value并解析为行
+        //根据key获取到value并解析为行，下文分析
         return nextRow(keysIterator.next());
+    }
+
+
+// RedisRecordCursor.nextRow
+// 在advanceNextPosition中调用，用于初始化读取下一行所需要的数据
+    private boolean nextRow(String keyString)
+    {
+        // 根据当前key获取并解析redis数据，下文分析
+        fetchData(keyString);
+
+        // key字符串的byte array
+        byte[] keyData = keyString.getBytes(StandardCharsets.UTF_8);
+
+        byte[] valueData = EMPTY_BYTE_ARRAY;
+        if (valueString != null) {
+            valueData = valueString.getBytes(StandardCharsets.UTF_8);
+        }
+
+        totalBytes += valueData.length;
+        totalValues++;
+
+        Optional<Map<DecoderColumnHandle, FieldValueProvider>> decodedKey = keyDecoder.decodeRow(
+                keyData,
+                null);
+        Optional<Map<DecoderColumnHandle, FieldValueProvider>> decodedValue = valueDecoder.decodeRow(
+                valueData,
+                valueMap);
+
+        Map<ColumnHandle, FieldValueProvider> currentRowValuesMap = new HashMap<>();
+
+        for (DecoderColumnHandle columnHandle : columnHandles) {
+            if (columnHandle.isInternal()) {
+                RedisInternalFieldDescription fieldDescription = RedisInternalFieldDescription.forColumnName(columnHandle.getName());
+                switch (fieldDescription) {
+                    case KEY_FIELD:
+                        currentRowValuesMap.put(columnHandle, bytesValueProvider(keyData));
+                        break;
+                    case VALUE_FIELD:
+                        currentRowValuesMap.put(columnHandle, bytesValueProvider(valueData));
+                        break;
+                    case KEY_LENGTH_FIELD:
+                        currentRowValuesMap.put(columnHandle, longValueProvider(keyData.length));
+                        break;
+                    case VALUE_LENGTH_FIELD:
+                        currentRowValuesMap.put(columnHandle, longValueProvider(valueData.length));
+                        break;
+                    case KEY_CORRUPT_FIELD:
+                        currentRowValuesMap.put(columnHandle, booleanValueProvider(!decodedKey.isPresent()));
+                        break;
+                    case VALUE_CORRUPT_FIELD:
+                        currentRowValuesMap.put(columnHandle, booleanValueProvider(!decodedValue.isPresent()));
+                        break;
+                    default:
+                        throw new IllegalArgumentException("unknown internal field " + fieldDescription);
+                }
+            }
+        }
+
+        decodedKey.ifPresent(currentRowValuesMap::putAll);
+        decodedValue.ifPresent(currentRowValuesMap::putAll);
+
+        for (int i = 0; i < columnHandles.size(); i++) {
+            ColumnHandle columnHandle = columnHandles.get(i);
+            currentRowValues[i] = currentRowValuesMap.get(columnHandle);
+        }
+
+        return true;
+    }
+
+
+// fetchData，根据key获取读取行所需要的各项数据
+
+    private boolean fetchData(String keyString)
+    {
+        valueString = null;
+        valueMap = null;
+        // redis插件目前支持两种value类型，String和hash
+        // 其中hash类型需要HashRowDecoder解码器来对
+        // Redis connector supports two types of Redis
+        // values: STRING and HASH
+        // HASH types requires hash row decoder to
+        // fill in the columns
+        // whereas for the STRING type decoders are optional
+        try (Jedis jedis = jedisPool.getResource()) {
+            switch (split.getValueDataType()) {
+                case STRING:
+                    valueString = jedis.get(keyString);
+                    if (valueString == null) {
+                        log.warn("Redis data modified while query was running, string value at key %s deleted", keyString);
+                        return false;
+                    }
+                    break;
+                case HASH:
+                    valueMap = jedis.hgetAll(keyString);
+                    if (valueMap == null) {
+                        log.warn("Redis data modified while query was running, hash value at key %s deleted", keyString);
+                        return false;
+                    }
+                    break;
+                default:
+                    log.debug("Redis type for key %s is unsupported", keyString);
+                    return false;
+            }
+        }
+        return true;
     }
 ```
 
