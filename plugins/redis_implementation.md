@@ -64,3 +64,7 @@ public Map<SchemaTableName, RedisTableDescription> get()
     }
 }
 ```
+
+2. 表数据读取过程
+
+
