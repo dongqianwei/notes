@@ -29,8 +29,8 @@
 * plugins
   * jdbc(TODO)
   * redis
-   * [Redis手册](plugins/redis_manual)
-   * [Redis实现](plugins/redis_implementation)
+    * [Redis手册](plugins/redis_manual)
+    * [Redis实现](plugins/redis_implementation)
 
 ### 容器技术
 
