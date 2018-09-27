@@ -255,29 +255,34 @@ RedisRecordCursor(
 // 在advanceNextPosition中调用，用于初始化读取下一行所需要的数据
     private boolean nextRow(String keyString)
     {
-        // 根据当前key获取并解析redis数据，下文分析
+        // 根据当前key获取并解析redis数据，保存在valueString或valueMap中，下文分析
         fetchData(keyString);
 
         // key字符串的byte array
         byte[] keyData = keyString.getBytes(StandardCharsets.UTF_8);
 
         byte[] valueData = EMPTY_BYTE_ARRAY;
+        // 如果valueString中有值，说明value为String类型
         if (valueString != null) {
+        // 将valueString转为byte array，保存在valueData中
             valueData = valueString.getBytes(StandardCharsets.UTF_8);
         }
 
         totalBytes += valueData.length;
         totalValues++;
 
+        // 用keyDecoder对key解码，生成对应列
         Optional<Map<DecoderColumnHandle, FieldValueProvider>> decodedKey = keyDecoder.decodeRow(
                 keyData,
                 null);
+        // 用valueDecoder对value解码，生成对应列
         Optional<Map<DecoderColumnHandle, FieldValueProvider>> decodedValue = valueDecoder.decodeRow(
                 valueData,
                 valueMap);
 
         Map<ColumnHandle, FieldValueProvider> currentRowValuesMap = new HashMap<>();
 
+        // 保存内部列各项数据
         for (DecoderColumnHandle columnHandle : columnHandles) {
             if (columnHandle.isInternal()) {
                 RedisInternalFieldDescription fieldDescription = RedisInternalFieldDescription.forColumnName(columnHandle.getName());
@@ -306,9 +311,11 @@ RedisRecordCursor(
             }
         }
 
+        // 保存key/value解码的到的各列数据
         decodedKey.ifPresent(currentRowValuesMap::putAll);
         decodedValue.ifPresent(currentRowValuesMap::putAll);
 
+        // 将各列数据保存到currentRowValues中
         for (int i = 0; i < columnHandles.size(); i++) {
             ColumnHandle columnHandle = columnHandles.get(i);
             currentRowValues[i] = currentRowValuesMap.get(columnHandle);
@@ -319,13 +326,13 @@ RedisRecordCursor(
 
 
 // fetchData，根据key获取读取行所需要的各项数据
-
+// 根据value类型保存在valueString或者valueMap中
     private boolean fetchData(String keyString)
     {
         valueString = null;
         valueMap = null;
         // redis插件目前支持两种value类型，String和hash
-        // 其中hash类型需要HashRowDecoder解码器来对
+        // 其中hash类型需要HashRowDecoder解码器解析为各列数据
         // Redis connector supports two types of Redis
         // values: STRING and HASH
         // HASH types requires hash row decoder to
@@ -334,13 +341,17 @@ RedisRecordCursor(
         try (Jedis jedis = jedisPool.getResource()) {
             switch (split.getValueDataType()) {
                 case STRING:
+                // 如果value类型为String
+                // 调用jedis.get获取value，保存到valueString中
                     valueString = jedis.get(keyString);
                     if (valueString == null) {
                         log.warn("Redis data modified while query was running, string value at key %s deleted", keyString);
                         return false;
                     }
                     break;
+                    // 如果value类型为hash
                 case HASH:
+                // 调用jedis.hgetAll获取hash表，保存到valueMap中
                     valueMap = jedis.hgetAll(keyString);
                     if (valueMap == null) {
                         log.warn("Redis data modified while query was running, hash value at key %s deleted", keyString);
