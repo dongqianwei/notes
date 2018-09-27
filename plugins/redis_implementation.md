@@ -166,3 +166,89 @@ public ConnectorSplitSource getSplits(ConnectorTransactionHandle transaction, Co
 
 ### RecordSet -> RecordCursor
 
+```java
+public RecordCursor cursor()
+{
+    return new RedisRecordCursor(keyDecoder, valueDecoder, split, columnHandles, jedisManager);
+}
+
+// 构造函数
+RedisRecordCursor(
+        RowDecoder keyDecoder,
+        RowDecoder valueDecoder,
+        RedisSplit split,
+        List<RedisColumnHandle> columnHandles,
+        RedisJedisManager redisJedisManager)
+{
+    this.keyDecoder = keyDecoder;
+    this.valueDecoder = valueDecoder;
+    this.split = split;
+    this.columnHandles = columnHandles;
+    this.redisJedisManager = redisJedisManager;
+    this.jedisPool = redisJedisManager.getJedisPool(split.getNodes().get(0));
+    this.scanParms = setScanParms();
+    this.currentRowValues = new FieldValueProvider[columnHandles.size()];
+
+    fetchKeys();
+}
+
+// 构造函数最后一步调用fetchKeys()，将会初始化后面遍历key用的迭代器:keyIterator。
+
+// 可以看到keys要么从用户制定的zset中获取，要么通过redis scan获取
+    // Redis keys can be contained in the user-provided ZSET
+    // Otherwise they need to be found by scanning Redis
+    private boolean fetchKeys()
+    {
+        try (Jedis jedis = jedisPool.getResource()) {
+            // 如果key的类型为string，调用scan方法
+            // 因为redis scan是利用cursor分批返回数据，所以需要保存一个redisCursor
+            switch (split.getKeyDataType()) {
+                case STRING: {
+                    String cursor = SCAN_POINTER_START;
+                    if (redisCursor != null) {
+                        cursor = redisCursor.getStringCursor();
+                    }
+
+                    log.debug("Scanning new Redis keys from cursor %s . %d values read so far", cursor, totalValues);
+                    // 调用jedis.scan获取keys
+                    redisCursor = jedis.scan(cursor, scanParms);
+                    List<String> keys = redisCursor.getResult();
+                    // 设置keyIterator
+                    keysIterator = keys.iterator();
+                }
+                break;
+                // 如果key类型为zset
+                case ZSET:
+                // split.getKeyName为zset的key，根据上一布分配的zset范围获取keys
+                    Set<String> keys = jedis.zrange(split.getKeyName(), split.getStart(), split.getEnd());
+                    // 设置keyIterator
+                    keysIterator = keys.iterator();
+                    break;
+                default:
+                    log.debug("Redis type of key %s is unsupported", split.getKeyDataFormat());
+                    return false;
+            }
+        }
+        return true;
+    }
+
+// advanceNextPosition在遍历cursor时，移动到下一行的数据，并返回是否还有数据
+    @Override
+    public boolean advanceNextPosition()
+    {
+        // 如果keysIterator遍历完了
+        while (!keysIterator.hasNext()) {
+            if (!hasUnscannedData()) {
+                return endOfData();
+            }
+            // 如果还有没有处理的数据（当key类型为STRING，且scan还没有返回最后的数据时），
+            // 再次调用fetchKeys()更新redisCursor和keysIterator
+            fetchKeys();
+        }
+
+        根据key获取到value并解析为行
+        return nextRow(keysIterator.next());
+    }
+```
+
+
