@@ -67,4 +67,102 @@ public Map<SchemaTableName, RedisTableDescription> get()
 
 2. 表数据读取过程
 
+presto表的数据的读取过程基本经过几个步骤：
+
+* tableHandle -> Splits
+* split -> RecordSet
+* RecordSet -> RecordCursor
+
+下面看redis插件中几个步骤的实现：
+
+### tableHandle -> Splits
+
+RedisSplitManager.getSplits
+
+```java
+public ConnectorSplitSource getSplits(ConnectorTransactionHandle transaction, ConnectorSession session, ConnectorTableLayoutHandle layout, SplitSchedulingStrategy splitSchedulingStrategy)
+{
+    RedisTableHandle redisTableHandle = convertLayout(layout).getTable();
+
+    List<HostAddress> nodes = new ArrayList<>(redisConnectorConfig.getNodes());
+    Collections.shuffle(nodes);
+
+    checkState(!nodes.isEmpty(), "No Redis nodes available");
+    ImmutableList.Builder<ConnectorSplit> builder = ImmutableList.builder();
+
+    long numberOfKeys = 1;
+    // 插件支持两种读取key的方式，一是遍历整个redis库，读取所有的key；二是从指定的一个zset类型中读取key
+    // 如果表描述文件中key的dataFormat为zset的话，则采用第二种方式，并且将zset中的key分成若干个区间，划分为不同的split读取。
+    // 否则只生成一个split
+    // when Redis keys are provides in a zset, create multiple
+    // splits by splitting zset in chunks
+    if (redisTableHandle.getKeyDataFormat().equals("zset")) {
+        try (Jedis jedis = jedisManager.getJedisPool(nodes.get(0)).getResource()) {
+            numberOfKeys = jedis.zcount(redisTableHandle.getKeyName(), "-inf", "+inf");
+        }
+    }
+
+    long stride = REDIS_STRIDE_SPLITS;
+
+    if (numberOfKeys / stride > REDIS_MAX_SPLITS) {
+        stride = numberOfKeys / REDIS_MAX_SPLITS;
+    }
+
+    for (long startIndex = 0; startIndex < numberOfKeys; startIndex += stride) {
+        long endIndex = startIndex + stride - 1;
+        if (endIndex >= numberOfKeys) {
+            endIndex = -1;
+        }
+
+        RedisSplit split = new RedisSplit(connectorId,
+                redisTableHandle.getSchemaName(),
+                redisTableHandle.getTableName(),
+                redisTableHandle.getKeyDataFormat(),
+                redisTableHandle.getValueDataFormat(),
+                redisTableHandle.getKeyName(),
+                startIndex,
+                endIndex,
+                nodes);
+
+        builder.add(split);
+    }
+    return new FixedSplitSource(builder.build());
+}
+```
+
+### split -> RecordSet
+
+```java
+    public RecordSet getRecordSet(ConnectorTransactionHandle transaction, ConnectorSession session, ConnectorSplit split, List<? extends ColumnHandle> columns)
+{
+    RedisSplit redisSplit = convertSplit(split);
+
+    List<RedisColumnHandle> redisColumns = columns.stream()
+            .map(RedisHandleResolver::convertColumnHandle)
+            .collect(ImmutableList.toImmutableList());
+
+    // 解码器负责将输入数据转化为各列的值
+    // key解码器
+    RowDecoder keyDecoder = decoderFactory.create(
+            redisSplit.getKeyDataFormat(),
+            emptyMap(),
+            redisColumns.stream()
+                    .filter(col -> !col.isInternal())
+                    .filter(RedisColumnHandle::isKeyDecoder)
+                    .collect(toImmutableSet()));
+
+    // value解码器
+    RowDecoder valueDecoder = decoderFactory.create(
+            redisSplit.getValueDataFormat(),
+            emptyMap(),
+            redisColumns.stream()
+                    .filter(col -> !col.isInternal())
+                    .filter(col -> !col.isKeyDecoder())
+                    .collect(toImmutableSet()));
+
+    return new RedisRecordSet(redisSplit, jedisManager, redisColumns, keyDecoder, valueDecoder);
+}
+```
+
+### RecordSet -> RecordCursor
 
