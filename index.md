@@ -24,8 +24,8 @@
 * join
   * [DetermineJoinDistributionType](join/DetermineJoinDistributionType)
   * [ReorderJoins](join/ReorderJoins)
-  * [PARTITIONED JOIN](join/presto_partitioned_join)
-  * [REPLICATED JOIN](join/presto_replicated_join)
+  * PARTITIONED JOIN(TODO)
+  * REPLICATED JOIN(TODO)
 * plugins
   * jdbc(TODO)
   * redis
@@ -34,5 +34,5 @@
 
 ### 容器技术
 
-* [docker](container/docker)
-* [kubernetes](container/kubernetes)
+* docker(TODO)
+* kubernetes(TODO)
