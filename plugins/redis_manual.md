@@ -2,9 +2,9 @@
 
 [redis 插件官方手册](https://prestodb.io/docs/current/connector/redis.html)
 
-每一个redis键值对都会在presto中表示为一行数据。行可以进一步更具表描述文件分解为多个cell。
+每一个redis键值对都会在presto中转换为一行数据。行可以进一步根据表描述文件分解为多个cell。
 
-当前只支持String和Hash两种类型，set和zset类型的数据目前无法查询。
+当前只支持String和Hash两种value类型，set和zset类型的数据目前无法查询。
 
 1. 配置项：
 
